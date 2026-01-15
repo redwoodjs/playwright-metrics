@@ -433,44 +433,41 @@ export type SuiteHealth = {
   health_score: number; // 0..1 (1 - flaky_rate)
 };
 
-async function getLastRunIds(n: number): Promise<string[]> {
-  const runs = await db
+function recentRunsSubq(n: number) {
+  return db
     .selectFrom("test_run")
-    .select(["id", "start_time"])
+    .select(["id"])
     .orderBy("start_time", "desc")
     .limit(n)
-    .execute();
-  return runs.map((r) => r.id);
+    .as("rr");
 }
 
-async function computeFlakyRateForRuns(runIds: string[]): Promise<{
+async function computeFlakyRateForRunsFromSubq(rr: ReturnType<typeof recentRunsSubq>): Promise<{
   totalPairs: number;
   flakyPairs: number;
 }> {
-  if (runIds.length === 0) return { totalPairs: 0, flakyPairs: 0 };
-
   // Distinct executions (test_id, run_id)
   const execPairs = await db
-    .selectFrom("test_result")
-    .select(["test_id", "run_id"])
-    .where("run_id", "in", runIds)
-    .groupBy(["test_id", "run_id"])
+    .selectFrom("test_result as r")
+    .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
+    .select(["r.test_id as test_id", "r.run_id as run_id"])
+    .groupBy(["r.test_id", "r.run_id"])
     .execute();
 
   // Flaky pairs: intersection of any-fail and any-pass for the same test/run
   const failPairs = db
-    .selectFrom("test_result")
-    .select(["test_id", "run_id"])
-    .where("run_id", "in", runIds)
-    .where("status", "=", "failed")
-    .groupBy(["test_id", "run_id"])
+    .selectFrom("test_result as r")
+    .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
+    .select(["r.test_id as test_id", "r.run_id as run_id"])
+    .where("r.status", "=", "failed")
+    .groupBy(["r.test_id", "r.run_id"])
     .as("f");
   const passPairs = db
-    .selectFrom("test_result")
-    .select(["test_id", "run_id"])
-    .where("run_id", "in", runIds)
-    .where("status", "=", "passed")
-    .groupBy(["test_id", "run_id"])
+    .selectFrom("test_result as r")
+    .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
+    .select(["r.test_id as test_id", "r.run_id as run_id"])
+    .where("r.status", "=", "passed")
+    .groupBy(["r.test_id", "r.run_id"])
     .as("p");
   const flakyPairs = await db
     .selectFrom(failPairs)
@@ -484,11 +481,11 @@ async function computeFlakyRateForRuns(runIds: string[]): Promise<{
 }
 
 export async function getSuiteHealth(windowRuns = 30): Promise<SuiteHealth> {
-  const runIds = await getLastRunIds(windowRuns);
-  const { totalPairs, flakyPairs } = await computeFlakyRateForRuns(runIds);
+  const rr = recentRunsSubq(windowRuns);
+  const { totalPairs, flakyPairs } = await computeFlakyRateForRunsFromSubq(rr);
   const flaky_rate = totalPairs > 0 ? flakyPairs / totalPairs : 0;
   return {
-    window_runs: runIds.length,
+    window_runs: windowRuns,
     total_executions: totalPairs,
     flaky_executions: flakyPairs,
     flaky_rate,
@@ -533,50 +530,51 @@ export async function listRegressions(
   previousWindow = 10,
   minimumSampleSize = 5,
 ): Promise<RegressionRow[]> {
-  const currentIds = await getLastRunIds(currentWindow);
-  if (currentIds.length === 0) return [];
+  const rrCur = recentRunsSubq(currentWindow);
+  // If there are no runs yet, bail early via totals = 0.
 
-  // Find previous window immediately before the oldest current run
+  // Previous window: take runs immediately before the current window
   const oldestCurrent = await db
-    .selectFrom("test_run")
-    .select(["start_time"])
-    .where("id", "=", currentIds[currentIds.length - 1]!)
+    .selectFrom(rrCur)
+    .innerJoin("test_run as tr", (join) => join.onRef("tr.id", "=", "rr.id"))
+    .select(["tr.start_time"])
+    .orderBy("tr.start_time", "asc")
+    .limit(1)
     .executeTakeFirst();
-  const prevIds = await db
+  const rrPrev = db
     .selectFrom("test_run")
     .select(["id"])
     .where("start_time", "<", oldestCurrent?.start_time ?? "")
     .orderBy("start_time", "desc")
     .limit(previousWindow)
-    .execute()
-    .then((rows) => rows.map((r) => r.id));
+    .as("rp");
 
   // Aggregations per window
   const execCurrent = await db
-    .selectFrom("test_result")
-    .select((eb) => ["test_id", eb.fn.count("run_id").distinct().as("total_runs")])
-    .where("run_id", "in", currentIds)
-    .groupBy("test_id")
+    .selectFrom("test_result as r")
+    .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
+    .select((eb) => ["r.test_id as test_id", eb.fn.count("r.run_id").distinct().as("total_runs")])
+    .groupBy("r.test_id")
     .execute();
   const currentTotals = new Map(execCurrent.map((r) => [r.test_id as string, Number(r.total_runs)]));
 
   const flakyCurrent = await db
     .selectFrom(
       db
-        .selectFrom("test_result")
-        .select(["test_id", "run_id"])
-        .where("run_id", "in", currentIds)
-        .where("status", "=", "failed")
-        .groupBy(["test_id", "run_id"])
+        .selectFrom("test_result as r")
+        .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
+        .select(["r.test_id as test_id", "r.run_id as run_id"])
+        .where("r.status", "=", "failed")
+        .groupBy(["r.test_id", "r.run_id"])
         .as("f"),
     )
     .innerJoin(
       db
-        .selectFrom("test_result")
-        .select(["test_id", "run_id"])
-        .where("run_id", "in", currentIds)
-        .where("status", "=", "passed")
-        .groupBy(["test_id", "run_id"])
+        .selectFrom("test_result as r")
+        .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
+        .select(["r.test_id as test_id", "r.run_id as run_id"])
+        .where("r.status", "=", "passed")
+        .groupBy(["r.test_id", "r.run_id"])
         .as("p"),
       (join) => join.onRef("f.test_id", "=", "p.test_id").onRef("f.run_id", "=", "p.run_id"),
     )
@@ -585,42 +583,37 @@ export async function listRegressions(
     .execute();
   const currentFlaky = new Map(flakyCurrent.map((r) => [r.test_id as string, Number(r.flaky_runs)]));
 
-  const execPrev = prevIds.length
-    ? await db
-        .selectFrom("test_result")
-        .select((eb) => ["test_id", eb.fn.count("run_id").distinct().as("total_runs")])
-        .where("run_id", "in", prevIds)
-        .groupBy("test_id")
-        .execute()
-    : [];
+  const execPrev = await db
+    .selectFrom("test_result as r")
+    .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
+    .select((eb) => ["r.test_id as test_id", eb.fn.count("r.run_id").distinct().as("total_runs")])
+    .groupBy("r.test_id")
+    .execute();
   const prevTotals = new Map(execPrev.map((r) => [r.test_id as string, Number(r.total_runs)]));
 
-  const flakyPrev =
-    prevIds.length > 0
-      ? await db
-          .selectFrom(
-            db
-              .selectFrom("test_result")
-              .select(["test_id", "run_id"])
-              .where("run_id", "in", prevIds)
-              .where("status", "=", "failed")
-              .groupBy(["test_id", "run_id"])
-              .as("f"),
-          )
-          .innerJoin(
-            db
-              .selectFrom("test_result")
-              .select(["test_id", "run_id"])
-              .where("run_id", "in", prevIds)
-              .where("status", "=", "passed")
-              .groupBy(["test_id", "run_id"])
-              .as("p"),
-            (join) => join.onRef("f.test_id", "=", "p.test_id").onRef("f.run_id", "=", "p.run_id"),
-          )
-          .select((eb) => ["f.test_id as test_id", eb.fn.countAll().as("flaky_runs")])
-          .groupBy("f.test_id")
-          .execute()
-      : [];
+  const flakyPrev = await db
+    .selectFrom(
+      db
+        .selectFrom("test_result as r")
+        .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
+        .select(["r.test_id as test_id", "r.run_id as run_id"])
+        .where("r.status", "=", "failed")
+        .groupBy(["r.test_id", "r.run_id"])
+        .as("f"),
+    )
+    .innerJoin(
+      db
+        .selectFrom("test_result as r")
+        .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
+        .select(["r.test_id as test_id", "r.run_id as run_id"])
+        .where("r.status", "=", "passed")
+        .groupBy(["r.test_id", "r.run_id"])
+        .as("p"),
+      (join) => join.onRef("f.test_id", "=", "p.test_id").onRef("f.run_id", "=", "p.run_id"),
+    )
+    .select((eb) => ["f.test_id as test_id", eb.fn.countAll().as("flaky_runs")])
+    .groupBy("f.test_id")
+    .execute();
   const prevFlaky = new Map(flakyPrev.map((r) => [r.test_id as string, Number(r.flaky_runs)]));
 
   // Compute regression set
