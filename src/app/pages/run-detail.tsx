@@ -21,7 +21,7 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
       <a href="/runs" className="underline text-sm">← Back to Runs</a>
       <h1 className="text-2xl font-bold">Run {run.id}</h1>
       <div className="space-y-1">
-        <div><b>Repository:</b> {run.repo}@{run.branch}</div>
+        <div><b>Repository:</b> {run.repo}/{run.branch}@{run.commit_hash}</div>
         <div><b>Commit:</b> <span title={run.commit_href ?? ""} className="font-mono">{run.commit_hash}</span></div>
         <div><b>PR User:</b> {run.pr_user}</div>
         <div><b>Start:</b> {run.start_time || "-"}</div>
@@ -85,7 +85,15 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
                   <td className="border border-black p-2 align-top">{t.project_name}</td>
                   <td className="border border-black p-2 align-top">{t.status}</td>
                   <td className="border border-black p-2 text-right align-top">{t.attempts}</td>
-                  <td className="border border-black p-2 align-top">{t.final_status}</td>
+                  <td className="border border-black p-2 align-top font-bold text-xs uppercase">
+                    {t.was_flaky ? (
+                      <span className="text-orange-600">FLAKY</span>
+                    ) : t.final_status === "passed" ? (
+                      <span className="text-green-600">{t.final_status}</span>
+                    ) : (
+                      <span className="text-red-600">{t.final_status}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

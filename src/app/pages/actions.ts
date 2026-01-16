@@ -34,6 +34,7 @@ export type RunTestRow = {
   expected: boolean | null;
   attempts: number | null;
   final_status: string | null;
+  was_flaky: boolean;
 };
 
 export async function listRunTests(runId: string): Promise<RunTestRow[]> {
@@ -58,6 +59,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
     .where("r.run_id", "=", runId)
     .groupBy("r.test_id")
     .as("mr");
+  
 
   const rows = await db
     .selectFrom("test_run_test as trt")
@@ -70,7 +72,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
         .onRef("rf.run_id", "=", "trt.run_id")
         .onRef("rf.retry", "=", "mr.max_retry"),
     )
-    .select([
+    .select((eb) => [
       "trt.id as id",
       "trt.test_id as test_id",
       "t.title as title",
@@ -81,6 +83,24 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
       "trt.expected as expected",
       "a.attempts as attempts",
       "rf.status as final_status",
+      eb.and([
+        eb.exists(
+          eb
+            .selectFrom("test_result as r1")
+            .select((qb) => qb.val(1).as("one"))
+            .whereRef("r1.run_id", "=", "trt.run_id")
+            .whereRef("r1.test_id", "=", "trt.test_id")
+            .where("r1.status", "=", "failed")
+        ),
+        eb.exists(
+          eb
+            .selectFrom("test_result as r2")
+            .select((qb) => qb.val(2).as("two"))
+            .whereRef("r2.run_id", "=", "trt.run_id")
+            .whereRef("r2.test_id", "=", "trt.test_id")
+            .where("r2.status", "=", "passed")
+        ),
+      ]).as("was_flaky"),
     ])
     .where("trt.run_id", "=", runId)
     .orderBy("t.file", "asc")
@@ -89,6 +109,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
   return rows.map((r) => ({
     ...r,
     attempts: r.attempts != null ? Number(r.attempts as unknown as number) : null,
+    was_flaky: Boolean(r.was_flaky),
   }));
 }
 
