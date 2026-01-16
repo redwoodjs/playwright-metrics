@@ -93,42 +93,38 @@ export async function ingestRawReport(
         .onConflict((oc) => oc.column("id").doNothing())
         .execute();
 
-      const projectId = (spec as any).projectId ?? spec.projectName ?? "";
-
-      // Link test to run (Result)
-      // Use deterministic ID to allow overwriting/updating same test result
-      const resultId = `${runId}:${testId}:${projectId}`;
-      await db
-        .insertInto("results")
-        .values({
-          id: resultId,
-          run_id: runId,
-          test_id: testId,
-          status: spec.ok ? "passed" : "failed",
-          project_name: spec.projectName ?? undefined,
-          project_id: projectId,
-        })
-        .onConflict((oc) =>
-          oc.column("id").doUpdateSet({
-            status: (eb) => eb.ref("excluded.status"),
-          })
-        )
-        .execute();
-
-      // Attempts
       for (const test of spec.tests ?? []) {
+        const projectId = test.projectName ?? "";
+        const resultId = `${runId}:${testId}:${projectId}`;
+
+        // Upsert result for this project
+        await db
+          .insertInto("results")
+          .values({
+            id: resultId,
+            run_id: runId,
+            test_id: testId,
+            project_id: projectId,
+            project_name: projectId,
+            status: spec.ok ? "passed" : "failed", // spec.ok is a general indicator
+          })
+          .onConflict((oc) =>
+            oc.column("id").doUpdateSet({
+              status: (eb) => eb.ref("excluded.status"),
+            })
+          )
+          .execute();
+
         for (const result of test.results ?? []) {
-          // Use deterministic ID for attempts too: run+test+project+retry
-          const attemptId = `${runId}:${testId}:${test.projectName ?? ""}:${
-            result.retry
-          }`;
+          // Use deterministic ID for attempts: run+test+project+retry
+          const attemptId = `${runId}:${testId}:${projectId}:${result.retry}`;
           await db
             .insertInto("attempts")
             .values({
               id: attemptId,
               run_id: runId,
               test_id: testId,
-              project_id: test.projectName,
+              project_id: projectId,
               status: result.status,
               duration_ms: result.duration,
               retry: result.retry,

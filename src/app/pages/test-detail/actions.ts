@@ -13,6 +13,7 @@ export type TestHistoryRow = {
   owner: string | null;
   repo: string | null;
   branch: string | null;
+  project_name: string | null;
   status: string | null;
   duration_ms: number;
   was_flaky: boolean;
@@ -38,6 +39,7 @@ export async function getTestHistory(
     .innerJoin("runs as tr", "tr.id", "trt.run_id")
     .select([
       "trt.run_id",
+      "trt.project_name",
       "tr.start_time",
       "tr.repo as owner",
       "tr.branch as repo",
@@ -56,25 +58,29 @@ export async function getTestHistory(
   // Fetch all results for these runs to compute flakiness and duration
   const results = await db
     .selectFrom("attempts")
-    .select(["run_id", "status", "duration_ms"])
+    .select(["run_id", "project_id", "status", "duration_ms"])
     .where("test_id", "=", testId)
     .where("run_id", "in", runIds)
     .execute();
 
-  // Aggregate results by run_id
-  const runMetrics = new Map<string, { duration: number; hadPass: boolean; hadFail: boolean }>();
+  // Aggregate results by run_id AND project_id
+  const projectMetrics = new Map<string, { duration: number; hadPass: boolean; hadFail: boolean }>();
   for (const r of results) {
-    const metrics = runMetrics.get(r.run_id) ?? { duration: 0, hadPass: false, hadFail: false };
+    const key = `${r.run_id}:${r.project_id ?? ""}`;
+    const metrics = projectMetrics.get(key) ?? { duration: 0, hadPass: false, hadFail: false };
     metrics.duration += (r.duration_ms ?? 0);
     if (r.status === "passed") metrics.hadPass = true;
     if (r.status === "failed") metrics.hadFail = true;
-    runMetrics.set(r.run_id, metrics);
+    projectMetrics.set(key, metrics);
   }
 
   return runs.map((r) => {
-    const metrics = runMetrics.get(r.run_id);
+    // Correctly match with project_name (which is stored in project_id in attempts)
+    const metrics = projectMetrics.get(`${r.run_id}:${r.project_name ?? ""}`);
+
     return {
       run_id: r.run_id,
+      project_name: r.project_name,
       start_time: r.start_time,
       owner: r.owner,
       repo: r.repo,

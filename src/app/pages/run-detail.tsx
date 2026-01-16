@@ -1,5 +1,6 @@
 import { getRun, listRunTests, listRunFlakies, listRunNewFlakies } from "./actions";
 import { StatusIcon } from "../components/status-icon";
+import { Histogram } from "../components/histogram";
 
 export const RunDetail = async ({ params }: { params: { runId: string } }) => {
   const runId = params.runId;
@@ -68,17 +69,15 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
               <col className="w-[28%]" />
               <col className="w-[10%]" />
               <col className="w-[10%]" />
-              <col className="w-[6%]" />
-              <col className="w-[6%]" />
+              <col className="w-[12%]" />
             </colgroup>
             <thead>
               <tr>
                 <th className="border border-black p-2 text-left">Title</th>
                 <th className="border border-black p-2 text-left">File</th>
                 <th className="border border-black p-2 text-left">Project</th>
-                <th className="border border-black p-2 text-left">Status</th>
-                <th className="border border-black p-2 text-right">Attempts</th>
-                <th className="border border-black p-2 text-left">Final</th>
+                <th className="border border-black p-2 text-left">Attempts</th>
+                <th className="border border-black p-2 text-left">Final Result</th>
               </tr>
             </thead>
             <tbody>
@@ -88,11 +87,12 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
                   <td className="border border-black p-2 align-top break-all">
                     {t.file}:{t.line}
                   </td>
-                  <td className="border border-black p-2 align-top">{t.project_name}</td>
-                  <td className="border border-black p-2 align-top">
-                    <StatusIcon status={t.status ?? ""} />
+                  <td className="border border-black p-2 align-top italic text-gray-500">
+                    {t.project_name}
                   </td>
-                  <td className="border border-black p-2 text-right align-top">{t.attempts}</td>
+                  <td className="border border-black p-2 align-top">
+                    <Histogram results={t.attempt_statuses} />
+                  </td>
                   <td className="border border-black p-2 align-top">
                     <StatusIcon status={t.final_status ?? ""} was_flaky={t.was_flaky} />
                   </td>

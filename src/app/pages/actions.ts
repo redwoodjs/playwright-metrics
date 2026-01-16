@@ -33,44 +33,54 @@ export type RunTestRow = {
   status: string | null;
   expected: boolean | null;
   attempts: number | null;
+  attempt_statuses: ("pass" | "fail")[];
   final_status: string | null;
   was_flaky: boolean;
 };
 
 export async function listRunTests(runId: string): Promise<RunTestRow[]> {
-  // Attempts per test
+  // Attempts per test per project
   const attemptsSubq = db
     .selectFrom("attempts as r")
     .select((eb) => [
       "r.test_id as test_id",
+      "r.project_id as project_id",
       eb.fn.countAll().as("attempts"),
     ])
     .where("r.run_id", "=", runId)
-    .groupBy("r.test_id")
+    .groupBy(["r.test_id", "r.project_id"])
     .as("a");
 
-  // Max retry per test
   const maxRetrySubq = db
     .selectFrom("attempts as r")
     .select((eb) => [
       "r.test_id as test_id",
+      "r.project_id as project_id",
       eb.fn.max("r.retry").as("max_retry"),
     ])
     .where("r.run_id", "=", runId)
-    .groupBy("r.test_id")
+    .groupBy(["r.test_id", "r.project_id"])
     .as("mr");
-  
 
   const rows = await db
     .selectFrom("results as trt")
     .innerJoin("specs as t", "t.id", "trt.test_id")
-    .leftJoin(attemptsSubq, "a.test_id", "trt.test_id")
-    .leftJoin(maxRetrySubq, "mr.test_id", "trt.test_id")
+    .leftJoin(attemptsSubq, (join) =>
+      join
+        .onRef("a.test_id", "=", "trt.test_id")
+        .onRef("a.project_id", "=", "trt.project_id")
+    )
+    .leftJoin(maxRetrySubq, (join) =>
+      join
+        .onRef("mr.test_id", "=", "trt.test_id")
+        .onRef("mr.project_id", "=", "trt.project_id")
+    )
     .leftJoin("attempts as rf", (join) =>
       join
         .onRef("rf.test_id", "=", "trt.test_id")
         .onRef("rf.run_id", "=", "trt.run_id")
-        .onRef("rf.retry", "=", "mr.max_retry"),
+        .onRef("rf.project_id", "=", "trt.project_id")
+        .onRef("rf.retry", "=", "mr.max_retry")
     )
     .select((eb) => [
       "trt.id as id",
@@ -90,6 +100,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r1.run_id", "=", "trt.run_id")
             .whereRef("r1.test_id", "=", "trt.test_id")
+            .whereRef("r1.project_id", "=", "trt.project_id")
             .where("r1.status", "=", "failed")
         ),
         eb.exists(
@@ -98,6 +109,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
             .select((qb) => qb.val(2).as("two"))
             .whereRef("r2.run_id", "=", "trt.run_id")
             .whereRef("r2.test_id", "=", "trt.test_id")
+            .whereRef("r2.project_id", "=", "trt.project_id")
             .where("r2.status", "=", "passed")
         ),
       ]).as("was_flaky"),
@@ -106,11 +118,33 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
     .orderBy("t.file", "asc")
     .orderBy("t.line", "asc")
     .execute();
-  return rows.map((r) => ({
-    ...r,
-    attempts: r.attempts != null ? Number(r.attempts as unknown as number) : null,
-    was_flaky: Boolean(r.was_flaky),
-  }));
+
+  // Fetch all individual attempts for this run to populate the histogram
+  const allAttempts = await db
+    .selectFrom("attempts")
+    .select(["test_id", "project_id", "status", "retry"])
+    .where("run_id", "=", runId)
+    .orderBy("retry", "asc")
+    .execute();
+
+  // Group attempts by test_id and project_id for easy lookup
+  const attemptsMap = new Map<string, ("pass" | "fail")[]>();
+  for (const att of allAttempts) {
+    const key = `${att.test_id}:${att.project_id ?? ""}`;
+    const statuses = attemptsMap.get(key) ?? [];
+    statuses.push(att.status === "passed" ? "pass" : "fail");
+    attemptsMap.set(key, statuses);
+  }
+
+  return rows.map((r) => {
+    const key = `${r.test_id}:${r.project_name ?? ""}`;
+    return {
+      ...r,
+      attempts: r.attempts != null ? Number(r.attempts as unknown as number) : null,
+      attempt_statuses: attemptsMap.get(key) ?? [],
+      was_flaky: Boolean(r.was_flaky),
+    };
+  });
 }
 
 export async function getTestResults(

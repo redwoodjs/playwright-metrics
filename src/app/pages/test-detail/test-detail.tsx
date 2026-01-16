@@ -77,6 +77,7 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
               <tr className="bg-gray-100 border-b border-black text-xs font-bold uppercase">
                 <th className="px-3 py-2">Start Time</th>
                 <th className="px-3 py-2">Context (Repo@Branch)</th>
+                <th className="px-3 py-2">Project</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Duration</th>
                 <th className="px-3 py-2 text-right">Actions</th>
@@ -91,6 +92,9 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
                   <td className="px-3 py-2 text-gray-500 italic text-xs truncate max-w-[200px]" title={`${run.owner}/${run.repo}@${run.branch}`}>
                     {run.owner}/{run.repo}
                     <div className="text-[10px] text-gray-400 not-italic">@{run.branch}</div>
+                  </td>
+                  <td className="px-3 py-2 text-gray-500 text-xs italic">
+                    {run.project_name}
                   </td>
                   <td className="px-3 py-2">
                     <StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />
