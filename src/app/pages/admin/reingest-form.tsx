@@ -1,14 +1,41 @@
 "use client";
-
-import type { BranchGroup } from "./reingest-actions";
+import { useActionState } from "react";
+import { type BranchGroup, reingestKeys } from "./reingest-actions";
 
 type ReingestFormProps = {
   prGroups: BranchGroup[];
 };
 
 export const ReingestForm = ({ prGroups }: ReingestFormProps) => {
+  const [state, action, isPending] = useActionState(reingestKeys, null);
+
   return (
-    <form method="POST" action="/admin/reingest" className="space-y-6">
+    <form action={action} className="space-y-6">
+      {state && (
+        <div
+          className={`p-4 border ${
+            state.ok ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"
+          }`}
+        >
+          {state.ok ? (
+            <p className="text-green-700">
+              Successfully re-ingested {state.count} files.
+            </p>
+          ) : (
+            <p className="text-red-700">Error: {state.error}</p>
+          )}
+          {state.errors && state.errors.length > 0 && (
+            <div className="mt-2 text-xs text-red-600">
+              <p className="font-bold">Errors:</p>
+              <ul className="list-disc pl-4">
+                {state.errors.map((err: string, i: number) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       {prGroups.map((group, groupIdx) => {
         // Collect unique PRs in this branch group for display
         const prs = new Map<string, { title: string; href: string }>();
@@ -103,9 +130,10 @@ export const ReingestForm = ({ prGroups }: ReingestFormProps) => {
       <div className="flex gap-2">
         <button
           type="submit"
-          className="px-4 py-2 bg-black text-white hover:bg-gray-800"
+          disabled={isPending}
+          className="px-4 py-2 bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
         >
-          Re-ingest Selected Files
+          {isPending ? "Re-ingesting..." : "Re-ingest Selected Files"}
         </button>
         <button
           type="button"

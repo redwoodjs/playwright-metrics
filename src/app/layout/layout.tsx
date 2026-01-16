@@ -1,4 +1,4 @@
-export const AppLayout: React.FC<any> = ({ children }) => {
+export const Layout: React.FC<any> = ({ children }) => {
   return (
     <div className="min-h-screen bg-white text-black">
       <header className="border-b border-black">

@@ -13,13 +13,18 @@ export type IngestionMetadata = {
   playwrightVersion?: string;
   workers?: number;
   shardCurrent?: number;
+  shard_current?: number;
   shardTotal?: number;
+  shard_total?: number;
   startTime?: string;
   durationMs?: number;
   expectedCount?: number;
   skippedCount?: number;
+  skipped_count?: number;
   flakyCount?: number;
+  flaky_count?: number;
   unexpectedCount?: number;
+  unexpected_count?: number;
 };
 
 /**
@@ -32,12 +37,8 @@ export async function ingestRawReport(
 ) {
   const { runId } = metadata;
 
-  // Cleanup existing data for this run to allow re-ingestion
-  await db.deleteFrom("attempts").where("run_id", "=", runId).execute();
-  await db.deleteFrom("results").where("run_id", "=", runId).execute();
-  await db.deleteFrom("runs").where("id", "=", runId).execute();
-
-  // Insert test run (mostly placeholders for now, will be updated by computeRunMetrics)
+  // Insert test run using upsert to avoid overwriting existing shard data
+  // but updating metadata if it changed.
   await db
     .insertInto("runs")
     .values({
@@ -52,15 +53,30 @@ export async function ingestRawReport(
       build_href: metadata.buildHref ?? "",
       playwright_version: metadata.playwrightVersion ?? "",
       workers: metadata.workers ?? 0,
-      shard_current: metadata.shardCurrent ?? 0,
-      shard_total: metadata.shardTotal ?? 0,
+      shard_current: metadata.shard_current ?? metadata.shardCurrent ?? 0,
+      shard_total: metadata.shard_total ?? metadata.shardTotal ?? 0,
       start_time: metadata.startTime ?? new Date().toISOString(),
       duration_ms: metadata.durationMs ?? 0,
       expected_count: metadata.expectedCount ?? 0,
-      skipped_count: metadata.skippedCount ?? 0,
-      flaky_count: metadata.flakyCount ?? 0,
-      unexpected_count: metadata.unexpectedCount ?? 0,
+      skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
+      flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
+      unexpected_count: metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
     })
+    .onConflict((oc) =>
+      oc.column("id").doUpdateSet({
+        pr_user: (eb) => eb.ref("excluded.pr_user"),
+        repo: (eb) => eb.ref("excluded.repo"),
+        branch: (eb) => eb.ref("excluded.branch"),
+        commit_hash: (eb) => eb.ref("excluded.commit_hash"),
+        commit_href: (eb) => eb.ref("excluded.commit_href"),
+        pr_href: (eb) => eb.ref("excluded.pr_href"),
+        pr_title: (eb) => eb.ref("excluded.pr_title"),
+        build_href: (eb) => eb.ref("excluded.build_href"),
+        playwright_version: (eb) => eb.ref("excluded.playwright_version"),
+        // We don't update shard info or counts here as they are partial per shard
+        // they will be updated by computeRunMetrics at the end.
+      })
+    )
     .execute();
 
   const processSuite = async (suite: any) => {
@@ -77,26 +93,39 @@ export async function ingestRawReport(
         .onConflict((oc) => oc.column("id").doNothing())
         .execute();
 
-      // Link test to run
+      const projectId = (spec as any).projectId ?? spec.projectName ?? "";
+
+      // Link test to run (Result)
+      // Use deterministic ID to allow overwriting/updating same test result
+      const resultId = `${runId}:${testId}:${projectId}`;
       await db
         .insertInto("results")
         .values({
-          id: crypto.randomUUID(),
+          id: resultId,
           run_id: runId,
           test_id: testId,
           status: spec.ok ? "passed" : "failed",
           project_name: spec.projectName ?? undefined,
-          project_id: (spec as any).projectId ?? spec.projectName ?? undefined,
+          project_id: projectId,
         })
+        .onConflict((oc) =>
+          oc.column("id").doUpdateSet({
+            status: (eb) => eb.ref("excluded.status"),
+          })
+        )
         .execute();
 
       // Attempts
       for (const test of spec.tests ?? []) {
         for (const result of test.results ?? []) {
+          // Use deterministic ID for attempts too: run+test+project+retry
+          const attemptId = `${runId}:${testId}:${test.projectName ?? ""}:${
+            result.retry
+          }`;
           await db
             .insertInto("attempts")
             .values({
-              id: crypto.randomUUID(),
+              id: attemptId,
               run_id: runId,
               test_id: testId,
               project_id: test.projectName,
@@ -107,6 +136,15 @@ export async function ingestRawReport(
               start_time: result.startTime,
               error_msg: result.error?.message ?? null,
             })
+            .onConflict((oc) =>
+              oc.column("id").doUpdateSet({
+                status: (eb) => eb.ref("excluded.status"),
+                duration_ms: (eb) => eb.ref("excluded.duration_ms"),
+                worker_index: (eb) => eb.ref("excluded.worker_index"),
+                start_time: (eb) => eb.ref("excluded.start_time"),
+                error_msg: (eb) => eb.ref("excluded.error_msg"),
+              })
+            )
             .execute();
         }
       }
