@@ -3,7 +3,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
 
   // Name of your worker
-  "name": "play-report",
+  "name": "playwright-metrics",
 
   // Entry point for your worker
   "main": "src/worker.tsx",
@@ -19,7 +19,7 @@
 
   "r2_buckets": [
     {
-      "bucket_name": "play-report",
+      "bucket_name": "playwright-metrics",
       "binding": "R2"
     }
   ],
@@ -27,15 +27,15 @@
     "bindings": [
       {
         "name": "DATABASE",
-        "class_name": "Database",
-      },
-    ],
+        "class_name": "Database"
+      }
+    ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Database"],
-    },
+      "new_sqlite_classes": ["Database"]
+    }
   ],
   // Observability settings
   "observability": {
