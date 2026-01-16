@@ -1,14 +1,14 @@
 import { render, route, layout } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
 
-import { Document } from "@/app/Document";
+import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
-import { Home } from "@/app/pages/Home";
-import { Runs } from "@/app/pages/Runs";
-import { Flakiest } from "@/app/pages/Flakiest";
-import { Health } from "@/app/pages/Health";
-import { AppLayout } from "@/app/layout/AppLayout";
-import { RunDetail } from "@/app/pages/RunDetail";
+import { Home } from "@/app/pages/home";
+import { Runs } from "@/app/pages/runs";
+import { Flakiest } from "@/app/pages/flakiest";
+import { Health } from "@/app/pages/health";
+import { AppLayout } from "@/app/layout/app-layout";
+import { RunDetail } from "@/app/pages/run-detail";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
 import {
