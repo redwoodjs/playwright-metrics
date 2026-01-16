@@ -20,7 +20,7 @@ export type TestHistoryRow = {
 
 export async function getTestData(testId: string): Promise<TestMetadata | null> {
   const test = await db
-    .selectFrom("test")
+    .selectFrom("specs")
     .selectAll()
     .where("id", "=", testId)
     .executeTakeFirst();
@@ -34,8 +34,8 @@ export async function getTestHistory(
 ): Promise<TestHistoryRow[]> {
   // Fetch the runs and the base test info for each run
   const runs = await db
-    .selectFrom("test_run_test as trt")
-    .innerJoin("test_run as tr", "tr.id", "trt.run_id")
+    .selectFrom("results as trt")
+    .innerJoin("runs as tr", "tr.id", "trt.run_id")
     .select([
       "trt.run_id",
       "tr.start_time",
@@ -55,7 +55,7 @@ export async function getTestHistory(
 
   // Fetch all results for these runs to compute flakiness and duration
   const results = await db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .select(["run_id", "status", "duration_ms"])
     .where("test_id", "=", testId)
     .where("run_id", "in", runIds)

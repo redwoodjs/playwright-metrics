@@ -2,21 +2,21 @@
 "use server";
 import { db } from "@/db";
 import type {
-  TestRun,
-  TestResult,
+  Run,
+  Attempt,
 } from "@/db";
 
-export async function listRuns(): Promise<TestRun[]> {
+export async function listRuns(): Promise<Run[]> {
   return await db
-    .selectFrom("test_run")
+    .selectFrom("runs")
     .selectAll()
     .orderBy("start_time", "desc")
     .execute();
 }
 
-export async function getRun(runId: string): Promise<TestRun | undefined> {
+export async function getRun(runId: string): Promise<Run | undefined> {
   const rows = await db
-    .selectFrom("test_run")
+    .selectFrom("runs")
     .selectAll()
     .where("id", "=", runId)
     .execute();
@@ -40,7 +40,7 @@ export type RunTestRow = {
 export async function listRunTests(runId: string): Promise<RunTestRow[]> {
   // Attempts per test
   const attemptsSubq = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select((eb) => [
       "r.test_id as test_id",
       eb.fn.countAll().as("attempts"),
@@ -51,7 +51,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
 
   // Max retry per test
   const maxRetrySubq = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select((eb) => [
       "r.test_id as test_id",
       eb.fn.max("r.retry").as("max_retry"),
@@ -62,11 +62,11 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
   
 
   const rows = await db
-    .selectFrom("test_run_test as trt")
-    .innerJoin("test as t", "t.id", "trt.test_id")
+    .selectFrom("results as trt")
+    .innerJoin("specs as t", "t.id", "trt.test_id")
     .leftJoin(attemptsSubq, "a.test_id", "trt.test_id")
     .leftJoin(maxRetrySubq, "mr.test_id", "trt.test_id")
-    .leftJoin("test_result as rf", (join) =>
+    .leftJoin("attempts as rf", (join) =>
       join
         .onRef("rf.test_id", "=", "trt.test_id")
         .onRef("rf.run_id", "=", "trt.run_id")
@@ -86,7 +86,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
       eb.and([
         eb.exists(
           eb
-            .selectFrom("test_result as r1")
+            .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r1.run_id", "=", "trt.run_id")
             .whereRef("r1.test_id", "=", "trt.test_id")
@@ -94,7 +94,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
         ),
         eb.exists(
           eb
-            .selectFrom("test_result as r2")
+            .selectFrom("attempts as r2")
             .select((qb) => qb.val(2).as("two"))
             .whereRef("r2.run_id", "=", "trt.run_id")
             .whereRef("r2.test_id", "=", "trt.test_id")
@@ -116,9 +116,9 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
 export async function getTestResults(
   runId: string,
   testId: string,
-): Promise<TestResult[]> {
+): Promise<Attempt[]> {
   return await db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .selectAll()
     .where("run_id", "=", runId)
     .where("test_id", "=", testId)
@@ -147,14 +147,14 @@ export type FlakiestRow = {
 export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
   // Distinct executions per (test, run) from the canonical source of truth
   const execRuns = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .groupBy(["r.test_id", "r.run_id"])
     .as("er");
 
   // Runs where the test had any failure
   const failRuns = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .where("r.status", "=", "failed")
     .groupBy(["r.test_id", "r.run_id"])
@@ -162,7 +162,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
 
   // Runs where the test had any pass
   const passRuns = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .where("r.status", "=", "passed")
     .groupBy(["r.test_id", "r.run_id"])
@@ -194,7 +194,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
 
   // Final attempt durations avg per test
   const finalDurations = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select([
       "r.test_id as test_id",
       "r.run_id as run_id",
@@ -202,7 +202,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
     ])
     .innerJoin(
       db
-        .selectFrom("test_result as rmax")
+        .selectFrom("attempts as rmax")
         .select((eb) => [
           "rmax.test_id as test_id",
           "rmax.run_id as run_id",
@@ -226,7 +226,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
 
   // Retry cost per test (time + count)
   const retryAgg = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .where("r.retry", ">", 0)
     .select((eb) => [
       "r.test_id as test_id",
@@ -244,7 +244,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
         .onRef("fr.test_id", "=", "pr.test_id")
         .onRef("fr.run_id", "=", "pr.run_id"),
     )
-    .innerJoin("test_run as tr", "tr.id", "fr.run_id")
+    .innerJoin("runs as tr", "tr.id", "fr.run_id")
     .select(["fr.test_id as test_id", "tr.start_time as start_time"])
     .as("frt");
 
@@ -259,7 +259,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
 
   const rows = await db
     .selectFrom(totalAgg)
-    .leftJoin("test as t", "t.id", "tot.test_id")
+    .leftJoin("specs as t", "t.id", "tot.test_id")
     .leftJoin(failAgg, "fa.test_id", "tot.test_id")
     .leftJoin(flakyAgg, "fka.test_id", "tot.test_id")
     .leftJoin(durationAgg, "da.test_id", "tot.test_id")
@@ -340,15 +340,15 @@ export type RunFlakyRow = {
 
 export async function listRunFlakies(runId: string): Promise<RunFlakyRow[]> {
   const rows = await db
-    .selectFrom("test_run_test as trt")
-    .innerJoin("test as t", "t.id", "trt.test_id")
+    .selectFrom("results as trt")
+    .innerJoin("specs as t", "t.id", "trt.test_id")
     .select(["trt.test_id as test_id", "t.title as title", "t.file as file", "t.line as line"])
     .where("trt.run_id", "=", runId)
     .where((eb) =>
       eb.and([
         eb.exists(
           eb
-            .selectFrom("test_result as r1")
+            .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r1.run_id", "=", "trt.run_id")
             .whereRef("r1.test_id", "=", "trt.test_id")
@@ -356,7 +356,7 @@ export async function listRunFlakies(runId: string): Promise<RunFlakyRow[]> {
         ),
         eb.exists(
           eb
-            .selectFrom("test_result as r2")
+            .selectFrom("attempts as r2")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r2.run_id", "=", "trt.run_id")
             .whereRef("r2.test_id", "=", "trt.test_id")
@@ -384,7 +384,7 @@ export async function getTestTrend(
 ): Promise<TestTrendPoint[]> {
   // determine final status per run
   const maxRetry = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select((eb) => [
       "r.run_id as run_id",
       eb.fn.max("r.retry").as("max_retry"),
@@ -394,10 +394,10 @@ export async function getTestTrend(
     .as("mr");
 
   const rows = await db
-    .selectFrom("test_run_test as trt")
-    .innerJoin("test_run as tr", "tr.id", "trt.run_id")
+    .selectFrom("results as trt")
+    .innerJoin("runs as tr", "tr.id", "trt.run_id")
     .leftJoin(maxRetry, "mr.run_id", "trt.run_id")
-    .leftJoin("test_result as rf", (join) =>
+    .leftJoin("attempts as rf", (join) =>
       join
         .onRef("rf.run_id", "=", "trt.run_id")
         .onRef("rf.test_id", "=", "trt.test_id")
@@ -410,7 +410,7 @@ export async function getTestTrend(
       eb
         .exists(
           eb
-            .selectFrom("test_result as r1")
+            .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r1.run_id", "=", "trt.run_id")
             .whereRef("r1.test_id", "=", "trt.test_id")
@@ -421,7 +421,7 @@ export async function getTestTrend(
         .and([
           eb.exists(
             eb
-              .selectFrom("test_result as r2")
+              .selectFrom("attempts as r2")
               .select((qb) => qb.val(1).as("one"))
               .whereRef("r2.run_id", "=", "trt.run_id")
               .whereRef("r2.test_id", "=", "trt.test_id")
@@ -429,7 +429,7 @@ export async function getTestTrend(
           ),
           eb.exists(
             eb
-              .selectFrom("test_result as r3")
+              .selectFrom("attempts as r3")
               .select((qb) => qb.val(1).as("one"))
               .whereRef("r3.run_id", "=", "trt.run_id")
               .whereRef("r3.test_id", "=", "trt.test_id")
@@ -464,7 +464,7 @@ export type SuiteHealth = {
 
 function recentRunsSubq(n: number) {
   return db
-    .selectFrom("test_run")
+    .selectFrom("runs")
     .select(["id"])
     .orderBy("start_time", "desc")
     .limit(n)
@@ -477,7 +477,7 @@ async function computeFlakyRateForRunsFromSubq(rr: ReturnType<typeof recentRunsS
 }> {
   // Distinct executions (test_id, run_id)
   const execPairs = await db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .groupBy(["r.test_id", "r.run_id"])
@@ -485,14 +485,14 @@ async function computeFlakyRateForRunsFromSubq(rr: ReturnType<typeof recentRunsS
 
   // Flaky pairs: intersection of any-fail and any-pass for the same test/run
   const failPairs = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .where("r.status", "=", "failed")
     .groupBy(["r.test_id", "r.run_id"])
     .as("f");
   const passPairs = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .innerJoin(rr, (join) => join.onRef("rr.id", "=", "r.run_id"))
     .select(["r.test_id as test_id", "r.run_id as run_id"])
     .where("r.status", "=", "passed")
@@ -565,13 +565,13 @@ export async function listRegressions(
   // Previous window: take runs immediately before the current window
   const oldestCurrent = await db
     .selectFrom(rrCur)
-    .innerJoin("test_run as tr", (join) => join.onRef("tr.id", "=", "rr.id"))
+    .innerJoin("runs as tr", (join) => join.onRef("tr.id", "=", "rr.id"))
     .select(["tr.start_time"])
     .orderBy("tr.start_time", "asc")
     .limit(1)
     .executeTakeFirst();
   const rrPrev = db
-    .selectFrom("test_run")
+    .selectFrom("runs")
     .select(["id"])
     .where("start_time", "<", oldestCurrent?.start_time ?? "")
     .orderBy("start_time", "desc")
@@ -580,7 +580,7 @@ export async function listRegressions(
 
   // Aggregations per window
   const execCurrent = await db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
     .select((eb) => ["r.test_id as test_id", eb.fn.count("r.run_id").distinct().as("total_runs")])
     .groupBy("r.test_id")
@@ -590,7 +590,7 @@ export async function listRegressions(
   const flakyCurrent = await db
     .selectFrom(
       db
-        .selectFrom("test_result as r")
+        .selectFrom("attempts as r")
         .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
         .select(["r.test_id as test_id", "r.run_id as run_id"])
         .where("r.status", "=", "failed")
@@ -599,7 +599,7 @@ export async function listRegressions(
     )
     .innerJoin(
       db
-        .selectFrom("test_result as r")
+        .selectFrom("attempts as r")
         .innerJoin(rrCur, (join) => join.onRef("rr.id", "=", "r.run_id"))
         .select(["r.test_id as test_id", "r.run_id as run_id"])
         .where("r.status", "=", "passed")
@@ -613,7 +613,7 @@ export async function listRegressions(
   const currentFlaky = new Map(flakyCurrent.map((r) => [r.test_id as string, Number(r.flaky_runs)]));
 
   const execPrev = await db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
     .select((eb) => ["r.test_id as test_id", eb.fn.count("r.run_id").distinct().as("total_runs")])
     .groupBy("r.test_id")
@@ -623,7 +623,7 @@ export async function listRegressions(
   const flakyPrev = await db
     .selectFrom(
       db
-        .selectFrom("test_result as r")
+        .selectFrom("attempts as r")
         .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
         .select(["r.test_id as test_id", "r.run_id as run_id"])
         .where("r.status", "=", "failed")
@@ -632,7 +632,7 @@ export async function listRegressions(
     )
     .innerJoin(
       db
-        .selectFrom("test_result as r")
+        .selectFrom("attempts as r")
         .innerJoin(rrPrev, (join) => join.onRef("rp.id", "=", "r.run_id"))
         .select(["r.test_id as test_id", "r.run_id as run_id"])
         .where("r.status", "=", "passed")
@@ -659,7 +659,7 @@ export async function listRegressions(
   if (candidateIds.length === 0) return [];
 
   const testsMeta = await db
-    .selectFrom("test")
+    .selectFrom("specs")
     .select(["id", "title", "file", "line"])
     .where("id", "in", candidateIds)
     .execute();
@@ -704,14 +704,14 @@ export async function listRunNewFlakies(
 
   // Flaky tests in this run
   const failNow = db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .select(["test_id"])
     .where("run_id", "=", runId)
     .where("status", "=", "failed")
     .groupBy("test_id")
     .as("fn");
   const passNow = db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .select(["test_id"])
     .where("run_id", "=", runId)
     .where("status", "=", "passed")
@@ -728,7 +728,7 @@ export async function listRunNewFlakies(
 
   // Prior runs (lookback) for those tests
   const priorRuns = await db
-    .selectFrom("test_run")
+    .selectFrom("runs")
     .select(["id", "start_time"])
     .where("start_time", "<", run.start_time!)
     .orderBy("start_time", "desc")
@@ -738,7 +738,7 @@ export async function listRunNewFlakies(
   if (priorIds.length === 0) {
     // All flakies are "new" if there is no history
     return await db
-      .selectFrom("test as t")
+      .selectFrom("specs as t")
       .select(["t.id as test_id", "t.title as title", "t.file as file", "t.line as line"])
       .where("t.id", "in", ids)
       .execute();
@@ -746,7 +746,7 @@ export async function listRunNewFlakies(
 
   // Which of those tests were flaky in any prior run?
   const priorFail = db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .select(["test_id", "run_id"])
     .where("test_id", "in", ids)
     .where("run_id", "in", priorIds)
@@ -754,7 +754,7 @@ export async function listRunNewFlakies(
     .groupBy(["test_id", "run_id"])
     .as("pf");
   const priorPass = db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .select(["test_id", "run_id"])
     .where("test_id", "in", ids)
     .where("run_id", "in", priorIds)
@@ -776,7 +776,7 @@ export async function listRunNewFlakies(
   if (newIds.length === 0) return [];
 
   return await db
-    .selectFrom("test as t")
+    .selectFrom("specs as t")
     .select(["t.id as test_id", "t.title as title", "t.file as file", "t.line as line"])
     .where("t.id", "in", newIds)
     .execute();

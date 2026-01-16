@@ -33,13 +33,13 @@ export async function ingestRawReport(
   const { runId } = metadata;
 
   // Cleanup existing data for this run to allow re-ingestion
-  await db.deleteFrom("test_result").where("run_id", "=", runId).execute();
-  await db.deleteFrom("test_run_test").where("run_id", "=", runId).execute();
-  await db.deleteFrom("test_run").where("id", "=", runId).execute();
+  await db.deleteFrom("attempts").where("run_id", "=", runId).execute();
+  await db.deleteFrom("results").where("run_id", "=", runId).execute();
+  await db.deleteFrom("runs").where("id", "=", runId).execute();
 
   // Insert test run (mostly placeholders for now, will be updated by computeRunMetrics)
   await db
-    .insertInto("test_run")
+    .insertInto("runs")
     .values({
       id: runId,
       pr_user: metadata.prUser ?? "",
@@ -72,14 +72,14 @@ export async function ingestRawReport(
 
       // Upsert test identity
       await db
-        .insertInto("test")
+        .insertInto("specs")
         .values({ id: testId, title, file: filePath, line })
         .onConflict((oc) => oc.column("id").doNothing())
         .execute();
 
       // Link test to run
       await db
-        .insertInto("test_run_test")
+        .insertInto("results")
         .values({
           id: crypto.randomUUID(),
           run_id: runId,
@@ -94,7 +94,7 @@ export async function ingestRawReport(
       for (const test of spec.tests ?? []) {
         for (const result of test.results ?? []) {
           await db
-            .insertInto("test_result")
+            .insertInto("attempts")
             .values({
               id: crypto.randomUUID(),
               run_id: runId,
@@ -122,11 +122,11 @@ export async function ingestRawReport(
 }
 
 /**
- * Computes metrics for a given run based on test_result entries.
+ * Computes metrics for a given run based on attempts entries.
  */
 export async function computeRunMetrics(runId: string) {
   const results = await db
-    .selectFrom("test_result")
+    .selectFrom("attempts")
     .selectAll()
     .where("run_id", "=", runId)
     .execute();
@@ -191,7 +191,7 @@ export async function computeRunMetrics(runId: string) {
       : 0;
 
   await db
-    .updateTable("test_run")
+    .updateTable("runs")
     .set({
       start_time: earliestStart ?? new Date().toISOString(),
       duration_ms: derivedDuration,

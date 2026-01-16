@@ -33,7 +33,7 @@ export const Home = async () => {
         <ul className="list-disc pl-6 text-sm">
           <li>Primary KPI is Flaky Rate: failed then passed in the same run.</li>
           <li>Ranking: highest flaky_rate, then flaky_runs, then total_runs.</li>
-          <li>Executions come from <code>test_result</code>; trends use the last N runs.</li>
+          <li>Executions come from <code>attempts</code>; trends use the last N runs.</li>
         </ul>
         <div className="text-sm">
           Explore: <a className="underline" href="/tests">Flakiest tests</a> · <a className="underline" href="/runs">Recent runs</a>

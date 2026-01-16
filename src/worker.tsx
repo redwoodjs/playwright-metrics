@@ -255,7 +255,7 @@ export default defineApp([
   // Debug: list runs as JSON to verify state visibility
   route("/api/runs", async () => {
     const runs = await db
-      .selectFrom("test_run")
+      .selectFrom("runs")
       .selectAll()
       .orderBy("start_time", "desc")
       .execute();

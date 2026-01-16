@@ -23,7 +23,7 @@ async function getRecentResults(
 ): Promise<("pass" | "flaky" | "fail")[]> {
   // Get the last N runs for this test
   const maxRetry = db
-    .selectFrom("test_result as r")
+    .selectFrom("attempts as r")
     .select((eb) => [
       "r.run_id as run_id",
       eb.fn.max("r.retry").as("max_retry"),
@@ -33,10 +33,10 @@ async function getRecentResults(
     .as("mr");
 
   const rows = await db
-    .selectFrom("test_run_test as trt")
-    .innerJoin("test_run as tr", "tr.id", "trt.run_id")
+    .selectFrom("results as trt")
+    .innerJoin("runs as tr", "tr.id", "trt.run_id")
     .leftJoin(maxRetry, "mr.run_id", "trt.run_id")
-    .leftJoin("test_result as rf", (join) =>
+    .leftJoin("attempts as rf", (join) =>
       join
         .onRef("rf.run_id", "=", "trt.run_id")
         .onRef("rf.test_id", "=", "trt.test_id")
@@ -47,7 +47,7 @@ async function getRecentResults(
       eb
         .exists(
           eb
-            .selectFrom("test_result as r1")
+            .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r1.run_id", "=", "trt.run_id")
             .whereRef("r1.test_id", "=", "trt.test_id")
@@ -57,7 +57,7 @@ async function getRecentResults(
       eb
         .exists(
           eb
-            .selectFrom("test_result as r2")
+            .selectFrom("attempts as r2")
             .select((qb) => qb.val(1).as("one"))
             .whereRef("r2.run_id", "=", "trt.run_id")
             .whereRef("r2.test_id", "=", "trt.test_id")

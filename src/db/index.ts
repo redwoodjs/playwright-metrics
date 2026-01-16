@@ -3,12 +3,12 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "@/db/migrations";
 
 export type AppDatabase = Database<typeof migrations>;
-export type Test = AppDatabase["test"];
-export type TestRun = AppDatabase["test_run"];
-export type TestRunTest = AppDatabase["test_run_test"];
-export type TestResult = AppDatabase["test_result"];
+export type Spec = AppDatabase["specs"];
+export type Run = AppDatabase["runs"];
+export type Result = AppDatabase["results"];
+export type Attempt = AppDatabase["attempts"];
 
 export const db = createDb<AppDatabase>(
   env.DATABASE,
-  "tests-database", // unique key for this database instance
+  "metrics", // unique key for this database instance
 );
