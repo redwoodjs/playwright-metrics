@@ -13,7 +13,7 @@ export const Flakiest = async () => {
   const rows = await listFlakiestTests(50);
   return (
     <div className="space-y-3">
-      <h1 className="text-2xl font-bold">Flakiest tests</h1>
+      <h1 className="text-2xl font-bold">Flakiest specs</h1>
       <div className="overflow-x-auto">
         <table className="w-full table-auto border-collapse border border-black text-sm">
           <colgroup>
@@ -28,7 +28,7 @@ export const Flakiest = async () => {
           </colgroup>
           <thead>
             <tr>
-              <th className="border border-black p-2 text-left">Test</th>
+              <th className="border border-black p-2 text-left">Spec</th>
               <th className="border border-black p-2 text-left">File</th>
               <th className="border border-black p-2 text-right">Flaky Rate</th>
               <th className="border border-black p-2 text-right">Instability Rate</th>
@@ -44,7 +44,7 @@ export const Flakiest = async () => {
             {rows.map((r) => (
               <tr key={r.test_id}>
                 <td className="border border-black p-2 align-top">
-                  <a href={`/tests/${r.test_id}`} className="hover:underline text-black font-medium">
+                  <a href={`/specs/${r.test_id}`} className="hover:underline text-black font-medium">
                     {r.title}
                   </a>
                 </td>

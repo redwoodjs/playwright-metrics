@@ -5,12 +5,10 @@ import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
 import { Home } from "@/app/pages/home";
 import { Runs } from "@/app/pages/runs";
-import { Flakiest } from "@/app/pages/flakiest";
-import { Health } from "@/app/pages/health";
 import { Layout } from "@/app/layout/layout";
 import { RunDetail } from "@/app/pages/run-detail";
 import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
-import { TestDetail } from "@/app/pages/test-detail/test-detail";
+import { TestDetail } from "@/app/pages/spec-detail/spec-detail";
 import { adminApiRoutes, adminPageRoutes } from "@/app/pages/admin/routes";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
@@ -28,13 +26,11 @@ export default defineApp([
 
   render(Document, [
     layout(Layout, [
-      route("/health", Health),
       route("/", Home),
       route("/runs", Runs),
       route("/runs/:runId", RunDetail),
-      route("/tests", Flakiest),
       route("/leaderboard", Leaderboard),
-      route("/tests/:testId", TestDetail),
+      route("/specs/:specId", TestDetail),
       ...adminPageRoutes,
     ]),
   ]),

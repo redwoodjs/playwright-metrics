@@ -20,7 +20,7 @@ export const Health = async () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Test suite health</h1>
+      <h1 className="text-2xl font-bold">Spec suite health</h1>
 
       <div className="space-y-1">
         <div>
@@ -41,7 +41,7 @@ export const Health = async () => {
           <table className="w-full table-auto border-collapse border border-black text-sm">
             <thead>
               <tr>
-                <th className="border border-black p-2 text-left">Test</th>
+                <th className="border border-black p-2 text-left">Spec</th>
                 <th className="border border-black p-2 text-left">File</th>
                 <th className="border border-black p-2 text-right">Flaky Rate</th>
                 <th className="border border-black p-2 text-right">Flaky Runs</th>
@@ -72,7 +72,7 @@ export const Health = async () => {
             <table className="w-full table-auto border-collapse border border-black text-sm">
               <thead>
                 <tr>
-                  <th className="border border-black p-2 text-left">Test</th>
+                  <th className="border border-black p-2 text-left">Spec</th>
                   <th className="border border-black p-2 text-left">File</th>
                   <th className="border border-black p-2 text-right">Current Flaky</th>
                   <th className="border border-black p-2 text-right">Previous Flaky</th>

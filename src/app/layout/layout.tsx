@@ -7,14 +7,8 @@ export const Layout: React.FC<any> = ({ children }) => {
             Play Report
           </a>
           <nav className="flex items-center gap-4 text-sm">
-            <a href="/health" className="underline hover:no-underline">
-              Health
-            </a>
             <a href="/runs" className="underline hover:no-underline">
               Runs
-            </a>
-            <a href="/tests" className="underline hover:no-underline">
-              Flakiest
             </a>
             <a href="/leaderboard" className="underline hover:no-underline">
               Leaderboard

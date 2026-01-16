@@ -36,7 +36,7 @@ export const Home = async () => {
           <li>Executions come from <code>attempts</code>; trends use the last N runs.</li>
         </ul>
         <div className="text-sm">
-          Explore: <a className="underline" href="/tests">Flakiest tests</a> · <a className="underline" href="/runs">Recent runs</a>
+          Explore: <a className="underline" href="/specs">Flakiest specs</a> · <a className="underline" href="/runs">Recent runs</a>
         </div>
       </div>
     </div>

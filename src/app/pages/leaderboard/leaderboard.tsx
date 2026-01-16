@@ -61,8 +61,8 @@ export const Leaderboard = async () => {
             {/* Test info */}
             <div className="flex-1 min-w-0">
               <div className="font-bold text-base mb-1">
-                <a href={`/tests/${row.test_id}`} className="hover:underline">
-                  {row.title || "Untitled test"}
+                <a href={`/specs/${row.test_id}`} className="hover:underline">
+                  {row.title || "Untitled spec"}
                 </a>
               </div>
               <div className="text-sm text-gray-600 truncate">{row.file || "Unknown file"}</div>

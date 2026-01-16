@@ -13,19 +13,19 @@ function formatDate(dateStr: string | null): string {
   return new Date(dateStr).toLocaleString();
 }
 
-export const TestDetail = async ({ params }: { params: { testId: string } }) => {
-  const testId = params.testId;
+export const TestDetail = async ({ params }: { params: { specId: string } }) => {
+  const specId = params.specId;
   const [test, history] = await Promise.all([
-    getTestData(testId),
-    getTestHistory(testId, 50),
+    getTestData(specId),
+    getTestHistory(specId, 50),
   ]);
 
   if (!test) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-red-600">Test Not Found</h1>
-        <p className="mt-2">The test with ID {testId} could not be found.</p>
-        <a href="/tests" className="underline mt-4 inline-block">Back to Flakiest Tests</a>
+        <h1 className="text-2xl font-bold text-red-600">Spec Not Found</h1>
+        <p className="mt-2">The spec with ID {specId} could not be found.</p>
+        <a href="/specs" className="underline mt-4 inline-block">Back to Flakiest Specs</a>
       </div>
     );
   }
@@ -42,13 +42,13 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
       <div className="flex items-center gap-2 text-sm">
          <a href="/leaderboard" className="underline text-gray-500 hover:text-black">Leaderboard</a>
          <span className="text-gray-400">/</span>
-         <span className="text-gray-900 font-medium">Test Detail</span>
+         <span className="text-gray-900 font-medium">Spec Detail</span>
       </div>
 
       {/* Header */}
       <div className="border border-black p-4 bg-white">
         <h1 className="text-2xl font-bold truncate" title={test.title || ""}>
-          {test.title || "Untitled Test"}
+          {test.title || "Untitled Spec"}
         </h1>
         <div className="text-sm text-gray-600 mt-1">
           {test.file}
@@ -113,7 +113,7 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
               {history.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-3 py-8 text-center text-gray-500 italic">
-                    No run history found for this test.
+                    No run history found for this spec.
                   </td>
                 </tr>
               )}

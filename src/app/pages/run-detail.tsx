@@ -37,7 +37,7 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-xl font-semibold">Tests</h2>
+        <h2 className="text-xl font-semibold">Specs</h2>
         {flakies.length > 0 && (
           <div className="border border-black p-2 bg-yellow-50 text-sm">
             <div className="font-bold mb-1">Flaky in this run</div>
@@ -52,7 +52,7 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
         )}
         {newFlakies.length > 0 && (
           <div className="border border-black p-2 bg-green-50 text-sm">
-            <div className="font-bold mb-1">New flaky tests introduced</div>
+            <div className="font-bold mb-1">New flaky specs introduced</div>
             <ul className="list-disc pl-6">
               {newFlakies.map((f) => (
                 <li key={f.test_id}>
