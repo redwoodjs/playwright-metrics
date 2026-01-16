@@ -9,8 +9,13 @@ import { Flakiest } from "@/app/pages/Flakiest";
 import { Health } from "@/app/pages/Health";
 import { AppLayout } from "@/app/layout/AppLayout";
 import { RunDetail } from "@/app/pages/RunDetail";
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
+import {
+  ingestRawReport,
+  computeRunMetrics,
+  type IngestionMetadata,
+} from "./db/ingestion";
 export { Database } from "@/db/durableObject";
 
 export type AppContext = {};
@@ -20,20 +25,17 @@ export default defineApp([
   ({ ctx }) => {
     ctx;
   },
-  render(
-    Document,
-    [
-      layout(AppLayout, [
-        route("/health", Health),
-        route("/", Home),
-        route("/runs", Runs),
-        route("/runs/:runId", RunDetail),
-        route("/tests", Flakiest),
-      ]),
-    ],
-  ),
+  render(Document, [
+    layout(AppLayout, [
+      route("/health", Health),
+      route("/", Home),
+      route("/runs", Runs),
+      route("/runs/:runId", RunDetail),
+      route("/tests", Flakiest),
+    ]),
+  ]),
 
-  route("/upload/", async ({ request }) => {
+  route("/upload/", async ({ request, ctx }) => {
     const formData = await request.formData();
 
     const file = formData.get("file") as File;
@@ -43,7 +45,8 @@ export default defineApp([
     const commit = formData.get("commit")!.toString();
     const prUser = formData.get("pr-user")?.toString() ?? "";
 
-    const playwrightVersion = formData.get("playwright-version")?.toString() ?? "";
+    const playwrightVersion =
+      formData.get("playwright-version")?.toString() ?? "";
     const workers = Number(formData.get("workers") ?? 0);
     const shardCurrent = Number(formData.get("shard-current") ?? 0);
     const shardTotal = Number(formData.get("shard-total") ?? 0);
@@ -61,186 +64,57 @@ export default defineApp([
 
     const reportJson = JSON.parse(await file.text());
 
-    // -----------------------------
-    // Insert test run
-    // -----------------------------
-    await db
-      .insertInto("test_run")
-      .values({
-        id: runId,
-        pr_user: prUser,
-        repo,
-        branch,
-        commit_hash: commit,
-        commit_href: commitHref,
-        pr_href: prHref,
-        pr_title: prTitle,
-        build_href: buildHref,
-        playwright_version: playwrightVersion,
-        workers,
-        shard_current: shardCurrent,
-        shard_total: shardTotal,
-        start_time: startTime,
-        duration_ms: durationMs,
-        expected_count: expectedCount,
-        skipped_count: skippedCount,
-        flaky_count: flakyCount,
-        unexpected_count: unexpectedCount,
-      })
-      .execute();
+    const metadata: IngestionMetadata = {
+      runId,
+      repo,
+      branch,
+      commit,
+      prUser,
+      playwrightVersion,
+      workers,
+      shardCurrent,
+      shardTotal,
+      startTime,
+      durationMs,
+      expectedCount,
+      skippedCount,
+      flakyCount,
+      unexpectedCount,
+      commitHref,
+      prHref,
+      prTitle,
+      buildHref,
+    };
 
     // -----------------------------
-    // Store raw report in R2
+    // Store raw report in R2 (with metadata)
     // -----------------------------
     const r2ObjectKey = `runs/${repo}/${branch}/${commit}/${runId}.json`;
+
+    // Convert metadata to a Record<string, string> for R2 customMetadata
+    const customMetadata: Record<string, string> = {};
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value !== undefined && value !== null) {
+        customMetadata[key] = value.toString();
+      }
+    }
 
     await env.R2.put(r2ObjectKey, JSON.stringify(reportJson), {
       httpMetadata: {
         contentType: "application/json",
       },
+      customMetadata,
     });
 
     // -----------------------------
-    // Normalize tests (handles nested suites)
+    // Ingest and compute metrics
     // -----------------------------
-    const processSuite = async (suite: any) => {
-      for (const spec of suite.specs ?? []) {
-        const testId = spec.id;
-        const title = spec.title;
-        const filePath = spec.file;
-        const line = spec.line;
-        // Upsert test identity
-        await db
-          .insertInto("test")
-          .values({ id: testId, title, file: filePath, line })
-          .onConflict((oc) => oc.column("id").doNothing())
-          .execute();
-        // Link test to run
-        await db
-          .insertInto("test_run_test")
-          .values({
-            id: crypto.randomUUID(),
-            run_id: runId,
-            test_id: testId,
-            status: spec.ok ? "passed" : "failed",
-            project_name: spec.projectName ?? undefined,
-            project_id: (spec as any).projectId ?? spec.projectName ?? undefined,
-          })
-          .execute();
-        // Attempts
-        for (const test of spec.tests ?? []) {
-          for (const result of test.results ?? []) {
-            await db
-              .insertInto("test_result")
-              .values({
-                id: crypto.randomUUID(),
-                run_id: runId,
-                test_id: testId,
-                project_id: test.projectName,
-                status: result.status,
-                duration_ms: result.duration,
-                retry: result.retry,
-                worker_index: result.workerIndex,
-                start_time: result.startTime,
-                error_msg: result.error?.message ?? null,
-              })
-              .execute();
-          }
-        }
-      }
-      for (const child of suite.suites ?? []) {
-        await processSuite(child);
-      }
-    };
-    for (const suite of reportJson.suites ?? []) {
-      await processSuite(suite);
-    }
-
-    // -----------------------------
-    // Derive run-level metrics if not provided
-    // -----------------------------
-    const results = await db
-      .selectFrom("test_result")
-      .selectAll()
-      .where("run_id", "=", runId)
-      .execute();
-
-    if (results.length > 0) {
-      // Compute earliest start and latest end (start + duration)
-      let earliestStart: string | null = null;
-      let latestEndMs = 0;
-
-      const testIdToResults = new Map<string, typeof results>();
-      for (const r of results) {
-        // group by test
-        const arr = (testIdToResults.get(r.test_id) as any[]) ?? [];
-        arr.push(r);
-        testIdToResults.set(r.test_id, arr as any);
-
-        // time math
-        if (r.start_time) {
-          if (!earliestStart || r.start_time < earliestStart) {
-            earliestStart = r.start_time;
-          }
-          const startMs = Date.parse(r.start_time);
-          const endMs = isNaN(startMs) ? 0 : startMs + (r.duration_ms ?? 0);
-          if (endMs > latestEndMs) latestEndMs = endMs;
-        }
-      }
-
-      // Categorize per test final status
-      let expectedCount = 0;
-      let skippedCount = 0;
-      let flakyCount = 0;
-      let unexpectedCount = 0;
-
-      for (const [, arr] of testIdToResults) {
-        let maxRetry = -1;
-        let finalStatus: string | null = null;
-        let hadFail = false;
-        let hadPass = false;
-        let hadSkipped = false;
-        for (const r of arr as any[]) {
-          if (r.status === "failed") hadFail = true;
-          if (r.status === "passed") hadPass = true;
-          if (r.status === "skipped") hadSkipped = true;
-          if ((r.retry ?? 0) >= maxRetry) {
-            maxRetry = r.retry ?? 0;
-            finalStatus = r.status ?? null;
-          }
-        }
-        const flakyInRun = hadFail && hadPass;
-        if (finalStatus === "skipped") {
-          skippedCount += 1;
-        } else if (flakyInRun) {
-          flakyCount += 1;
-        } else if (finalStatus === "failed") {
-          unexpectedCount += 1;
-        } else if (finalStatus === "passed") {
-          expectedCount += 1;
-        }
-      }
-
-      // Fallback values if missing
-      const derivedStart = earliestStart ?? startTime ?? new Date().toISOString();
-      const derivedDuration =
-        latestEndMs > 0 && earliestStart
-          ? Math.max(0, latestEndMs - Date.parse(earliestStart))
-          : durationMs ?? 0;
-
-      await db
-        .updateTable("test_run")
-        .set({
-          start_time: startTime || derivedStart,
-          duration_ms: durationMs || derivedDuration,
-          expected_count: expectedCount,
-          skipped_count: skippedCount,
-          flaky_count: flakyCount,
-          unexpected_count: unexpectedCount,
-        })
-        .where("id", "=", runId)
-        .execute();
-    }
+    waitUntil(
+      (async () => {
+        await ingestRawReport(metadata, reportJson);
+        await computeRunMetrics(runId);
+      })()
+    );
 
     return new Response(
       JSON.stringify({
@@ -252,6 +126,96 @@ export default defineApp([
         headers: { "Content-Type": "application/json" },
       }
     );
+  }),
+
+  route("/admin/reingest", async () => {
+    console.log("[Re-ingest] Starting re-ingestion of all R2 data...");
+
+    let count = 0;
+    let cursor: string | undefined;
+
+    while (true) {
+      const list = await env.R2.list({
+        prefix: "runs/",
+        cursor,
+      });
+
+      for (const obj of list.objects) {
+        console.log(`[Re-ingest] Processing ${obj.key}...`);
+
+        const r2Obj = await env.R2.get(obj.key);
+        if (!r2Obj) {
+          console.log(`[Re-ingest] Skipping ${obj.key}, could not fetch.`);
+          continue;
+        }
+
+        const reportJson = await r2Obj.json<any>();
+        const customMetadata = r2Obj.customMetadata ?? {};
+
+        // Parse key: runs/${repo}/${branch}/${commit}/${runId}.json
+        const parts = obj.key.split("/");
+        // parts[0] is "runs"
+        const repo = parts[1];
+        const branch = parts[2];
+        const commit = parts[3];
+        const filename = parts[4];
+        const runId = filename.replace(".json", "");
+
+        const metadata: IngestionMetadata = {
+          runId,
+          repo,
+          branch,
+          commit,
+          prUser: customMetadata.prUser,
+          playwrightVersion:
+            customMetadata.playwrightVersion ||
+            reportJson.config?.playwrightVersion,
+          workers: customMetadata.workers
+            ? Number(customMetadata.workers)
+            : undefined,
+          shardCurrent: customMetadata.shardCurrent
+            ? Number(customMetadata.shardCurrent)
+            : undefined,
+          shardTotal: customMetadata.shardTotal
+            ? Number(customMetadata.shardTotal)
+            : undefined,
+          startTime: customMetadata.startTime || reportJson.stats?.startTime,
+          durationMs: customMetadata.durationMs
+            ? Number(customMetadata.durationMs)
+            : reportJson.stats?.duration,
+          expectedCount: customMetadata.expectedCount
+            ? Number(customMetadata.expectedCount)
+            : undefined,
+          skippedCount: customMetadata.skippedCount
+            ? Number(customMetadata.skippedCount)
+            : undefined,
+          flakyCount: customMetadata.flakyCount
+            ? Number(customMetadata.flakyCount)
+            : undefined,
+          unexpectedCount: customMetadata.unexpectedCount
+            ? Number(customMetadata.unexpectedCount)
+            : undefined,
+          commitHref: customMetadata.commitHref,
+          prHref: customMetadata.prHref,
+          prTitle: customMetadata.prTitle,
+          buildHref: customMetadata.buildHref,
+        };
+
+        await ingestRawReport(metadata, reportJson);
+        await computeRunMetrics(runId);
+        count++;
+      }
+
+      if (!list.truncated) break;
+      cursor = list.cursor;
+    }
+
+    console.log(`[Re-ingest] Finished re-ingesting ${count} runs.`);
+
+    return new Response(JSON.stringify({ ok: true, count }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }),
 
   // Debug: list runs as JSON to verify state visibility
