@@ -1,4 +1,5 @@
 import { getRun, listRunTests, listRunFlakies, listRunNewFlakies } from "./actions";
+import { StatusIcon } from "../components/status-icon";
 
 export const RunDetail = async ({ params }: { params: { runId: string } }) => {
   const runId = params.runId;
@@ -26,7 +27,12 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
         <div><b>PR User:</b> {run.pr_user}</div>
         <div><b>Start:</b> {run.start_time || "-"}</div>
         <div><b>Duration (ms):</b> {run.duration_ms}</div>
-        <div><b>Counts:</b> expected {run.expected_count}, skipped {run.skipped_count}, flaky {run.flaky_count}, unexpected {run.unexpected_count}</div>
+        <div className="flex gap-4 border-t border-black pt-2 mt-2">
+          <div className="flex items-center gap-1"><StatusIcon status="passed" /> <span>{run.expected_count}</span></div>
+          <div className="flex items-center gap-1"><StatusIcon status="failed" /> <span>{run.unexpected_count}</span></div>
+          <div className="flex items-center gap-1"><StatusIcon status="flaky" /> <span>{run.flaky_count}</span></div>
+          <div className="flex items-center gap-1"><StatusIcon status="skipped" /> <span>{run.skipped_count}</span></div>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -83,16 +89,12 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
                     {t.file}:{t.line}
                   </td>
                   <td className="border border-black p-2 align-top">{t.project_name}</td>
-                  <td className="border border-black p-2 align-top">{t.status}</td>
+                  <td className="border border-black p-2 align-top">
+                    <StatusIcon status={t.status ?? ""} />
+                  </td>
                   <td className="border border-black p-2 text-right align-top">{t.attempts}</td>
-                  <td className="border border-black p-2 align-top font-bold text-xs uppercase">
-                    {t.was_flaky ? (
-                      <span className="text-orange-600">FLAKY</span>
-                    ) : t.final_status === "passed" ? (
-                      <span className="text-green-600">{t.final_status}</span>
-                    ) : (
-                      <span className="text-red-600">{t.final_status}</span>
-                    )}
+                  <td className="border border-black p-2 align-top">
+                    <StatusIcon status={t.final_status ?? ""} was_flaky={t.was_flaky} />
                   </td>
                 </tr>
               ))}

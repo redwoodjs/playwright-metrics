@@ -1,4 +1,5 @@
 import { listRuns } from "./actions";
+import { StatusIcon } from "../components/status-icon";
 
 export const Runs = async () => {
   const runs = await listRuns();
@@ -29,10 +30,18 @@ export const Runs = async () => {
               <th className="border border-black p-2 text-left">PR User</th>
               <th className="border border-black p-2 text-left">Start</th>
               <th className="border border-black p-2 text-left">Duration (ms)</th>
-              <th className="border border-black p-2 text-right">Expected</th>
-              <th className="border border-black p-2 text-right">Skipped</th>
-              <th className="border border-black p-2 text-right">Flaky</th>
-              <th className="border border-black p-2 text-right">Unexpected</th>
+              <th className="border border-black p-2 text-right">
+                <div className="flex items-center justify-end gap-1"><StatusIcon status="passed" /></div>
+              </th>
+              <th className="border border-black p-2 text-right">
+                <div className="flex items-center justify-end gap-1"><StatusIcon status="skipped" /></div>
+              </th>
+              <th className="border border-black p-2 text-right">
+                <div className="flex items-center justify-end gap-1"><StatusIcon status="flaky" /></div>
+              </th>
+              <th className="border border-black p-2 text-right">
+                <div className="flex items-center justify-end gap-1"><StatusIcon status="failed" /></div>
+              </th>
             </tr>
           </thead>
           <tbody>

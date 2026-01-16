@@ -1,5 +1,6 @@
 import { getTestData, getTestHistory } from "./actions";
 import { Histogram } from "@/app/components/histogram";
+import { StatusIcon } from "../../components/status-icon";
 
 function formatDuration(ms: number | null): string {
   if (ms === null || ms === 0) return "-";
@@ -92,13 +93,7 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
                     <div className="text-[10px] text-gray-400 not-italic">@{run.branch}</div>
                   </td>
                   <td className="px-3 py-2">
-                    {run.was_flaky ? (
-                      <span className="text-orange-600 font-bold bg-orange-50 px-1.5 py-0.5 rounded text-[10px]">FLAKY</span>
-                    ) : run.status === "passed" ? (
-                      <span className="text-green-600 font-bold uppercase bg-green-50 px-1.5 py-0.5 rounded text-[10px]">{run.status}</span>
-                    ) : (
-                      <span className="text-red-600 font-bold uppercase bg-red-50 px-1.5 py-0.5 rounded text-[10px]">{run.status || "FAILED"}</span>
-                    )}
+                    <StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{formatDuration(run.duration_ms)}</td>
                   <td className="px-3 py-2 text-right">
