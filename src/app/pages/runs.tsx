@@ -1,6 +1,15 @@
 import { listRuns } from "./actions";
 import { StatusIcon } from "../components/status-icon";
 
+const formatDate = (dateStr: string | null) => {
+  if (!dateStr) return "-";
+  try {
+    return new Date(dateStr).toLocaleString();
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 export const Runs = async () => {
   const runs = await listRuns();
   return (
@@ -54,7 +63,7 @@ export const Runs = async () => {
                 <td className="border border-black p-2 align-top">{r.branch}</td>
                 <td className="border border-black p-2 align-top break-all" title={r.commit_href ?? ""}>{r.commit_hash}</td>
                 <td className="border border-black p-2 align-top">{r.pr_user}</td>
-                <td className="border border-black p-2 align-top">{r.start_time}</td>
+                <td className="border border-black p-2 align-top">{formatDate(r.start_time)}</td>
                 <td className="border border-black p-2 align-top">{r.duration_ms}</td>
                 <td className="border border-black p-2 text-right align-top">{r.expected_count}</td>
                 <td className="border border-black p-2 text-right align-top">{r.skipped_count}</td>

@@ -35,7 +35,7 @@ export const TestDetail = async ({ params }: { params: { testId: string } }) => 
     if (r.was_flaky) return "flaky";
     if (r.status === "passed") return "pass";
     return "fail";
-  }).reverse(); // Most recent on the right
+  }); // Newest to oldest (newest on the left)
 
   return (
     <div className="space-y-6">

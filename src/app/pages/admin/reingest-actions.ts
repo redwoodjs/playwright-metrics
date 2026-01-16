@@ -95,8 +95,27 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
     branchMap.set(branchKey, group);
   }
 
-  // Convert to array and sort by repo/branch
+  // Sort objects within each group by uploaded DESC
+  for (const group of branchMap.values()) {
+    group.objects.sort((a, b) => {
+      const aTime = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+      const bTime = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
+  // Convert to array and sort by the newest object in each group DESC
   const groups = Array.from(branchMap.values()).sort((a, b) => {
+    const aTime = a.objects[0]?.uploaded
+      ? new Date(a.objects[0].uploaded).getTime()
+      : 0;
+    const bTime = b.objects[0]?.uploaded
+      ? new Date(b.objects[0].uploaded).getTime()
+      : 0;
+
+    if (bTime !== aTime) return bTime - aTime;
+
+    // Fallback to name
     const aKey = `${a.repo}/${a.branch}`;
     const bKey = `${b.repo}/${b.branch}`;
     return aKey.localeCompare(bKey);

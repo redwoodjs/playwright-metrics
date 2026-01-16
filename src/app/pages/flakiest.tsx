@@ -1,5 +1,14 @@
 import { listFlakiestTests } from "./actions";
 
+const formatDate = (dateStr: string | null) => {
+  if (!dateStr) return "-";
+  try {
+    return new Date(dateStr).toLocaleString();
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 export const Flakiest = async () => {
   const rows = await listFlakiestTests(50);
   return (
@@ -46,7 +55,7 @@ export const Flakiest = async () => {
                 <td className="border border-black p-2 text-right align-top">{r.total_runs}</td>
                 <td className="border border-black p-2 text-right align-top">{r.retry_count_total ?? 0}</td>
                 <td className="border border-black p-2 text-right align-top">{r.retry_duration_total_ms ?? 0}</td>
-                <td className="border border-black p-2 align-top">{r.last_flaky_start_time ?? "-"}</td>
+                <td className="border border-black p-2 align-top">{formatDate(r.last_flaky_start_time ?? null)}</td>
                 <td className="border border-black p-2 align-top">{r.bucket}</td>
               </tr>
             ))}
