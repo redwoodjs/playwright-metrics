@@ -34,7 +34,11 @@ export const Flakiest = async () => {
           <tbody>
             {rows.map((r) => (
               <tr key={r.test_id}>
-                <td className="border border-black p-2 align-top">{r.title}</td>
+                <td className="border border-black p-2 align-top">
+                  <a href={`/tests/${r.test_id}`} className="hover:underline text-black font-medium">
+                    {r.title}
+                  </a>
+                </td>
                 <td className="border border-black p-2 align-top break-all">{r.file}</td>
                 <td className="border border-black p-2 text-right align-top">{(r.flaky_rate * 100).toFixed(0)}%</td>
                 <td className="border border-black p-2 text-right align-top">{(r.fail_rate * 100).toFixed(0)}%</td>

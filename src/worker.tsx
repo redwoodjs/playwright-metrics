@@ -11,6 +11,7 @@ import { AppLayout as Layout } from "@/app/layout/app-layout";
 import { RunDetail } from "@/app/pages/run-detail";
 import { Reingest } from "@/app/pages/admin/reingest";
 import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
+import { TestDetail } from "@/app/pages/test-detail/test-detail";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
 import {
@@ -33,6 +34,7 @@ export default defineApp([
       route("/runs/:runId", RunDetail),
       route("/tests", Flakiest),
       route("/leaderboard", Leaderboard),
+      route("/tests/:testId", TestDetail),
       route("/admin/reingest", Reingest),
     ]),
   ]),
