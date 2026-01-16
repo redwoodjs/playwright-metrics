@@ -10,6 +10,7 @@ import { Health } from "@/app/pages/health";
 import { AppLayout as Layout } from "@/app/layout/app-layout";
 import { RunDetail } from "@/app/pages/run-detail";
 import { Reingest } from "@/app/pages/admin/reingest";
+import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
 import {
@@ -31,6 +32,7 @@ export default defineApp([
       route("/runs", Runs),
       route("/runs/:runId", RunDetail),
       route("/tests", Flakiest),
+      route("/leaderboard", Leaderboard),
       route("/admin/reingest", Reingest),
     ]),
   ]),

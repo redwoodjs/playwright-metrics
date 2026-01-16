@@ -16,6 +16,9 @@ export const AppLayout: React.FC<any> = ({ children }) => {
             <a href="/tests" className="underline hover:no-underline">
               Flakiest
             </a>
+            <a href="/leaderboard" className="underline hover:no-underline">
+              Leaderboard
+            </a>
           </nav>
         </div>
       </header>

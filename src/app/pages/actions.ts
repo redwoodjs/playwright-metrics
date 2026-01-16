@@ -293,13 +293,21 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
     } as FlakiestRow;
   });
 
-  // Rank by flaky_rate (desc), then by total_runs (desc) for stability
-  mapped.sort((a, b) => {
+  // Filters out "pure failures" and "consistent flakes"
+  // If it fails 100% of the time, it's a failure, not a flaky test.
+  const onlyFlaky = mapped.filter((r) => r.flaky_runs > 0 && r.fail_rate < 1);
+
+  // Default ordering everywhere:
+  // 1. Highest flaky_rate
+  // 2. Then highest flaky_runs
+  // 3. Then highest total_runs
+  onlyFlaky.sort((a, b) => {
     if (b.flaky_rate !== a.flaky_rate) return b.flaky_rate - a.flaky_rate;
+    if (b.flaky_runs !== a.flaky_runs) return b.flaky_runs - a.flaky_runs;
     return b.total_runs - a.total_runs;
   });
 
-  return mapped.slice(0, limit);
+  return onlyFlaky.slice(0, limit);
 }
 
 export type RunFlakyRow = {
