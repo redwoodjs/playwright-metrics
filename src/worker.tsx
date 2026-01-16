@@ -7,8 +7,9 @@ import { Home } from "@/app/pages/home";
 import { Runs } from "@/app/pages/runs";
 import { Flakiest } from "@/app/pages/flakiest";
 import { Health } from "@/app/pages/health";
-import { AppLayout } from "@/app/layout/app-layout";
+import { AppLayout as Layout } from "@/app/layout/app-layout";
 import { RunDetail } from "@/app/pages/run-detail";
+import { Reingest } from "@/app/pages/admin/reingest";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
 import {
@@ -24,12 +25,13 @@ export default defineApp([
   setCommonHeaders(),
 
   render(Document, [
-    layout(AppLayout, [
+    layout(Layout, [
       route("/health", Health),
       route("/", Home),
       route("/runs", Runs),
       route("/runs/:runId", RunDetail),
       route("/tests", Flakiest),
+      route("/admin/reingest", Reingest),
     ]),
   ]),
 
@@ -126,94 +128,124 @@ export default defineApp([
     );
   }),
 
-  route("/admin/reingest", async () => {
-    console.log("[Re-ingest] Starting re-ingestion of all R2 data...");
+  route("/admin/reingest", async ({ request }) => {
+    // Handle POST requests for actual re-ingestion
+    if (request.method === "POST") {
+      const formData = await request.formData();
+      const keys = formData.getAll("keys") as string[];
 
-    let count = 0;
-    let cursor: string | undefined;
-
-    while (true) {
-      const list = await env.R2.list({
-        prefix: "runs/",
-        cursor,
-      });
-
-      for (const obj of list.objects) {
-        console.log(`[Re-ingest] Processing ${obj.key}...`);
-
-        const r2Obj = await env.R2.get(obj.key);
-        if (!r2Obj) {
-          console.log(`[Re-ingest] Skipping ${obj.key}, could not fetch.`);
-          continue;
-        }
-
-        const reportJson = await r2Obj.json<any>();
-        const customMetadata = r2Obj.customMetadata ?? {};
-
-        // Parse key: runs/${repo}/${branch}/${commit}/${runId}.json
-        const parts = obj.key.split("/");
-        // parts[0] is "runs"
-        const repo = parts[1];
-        const branch = parts[2];
-        const commit = parts[3];
-        const filename = parts[4];
-        const runId = filename.replace(".json", "");
-
-        const metadata: IngestionMetadata = {
-          runId,
-          repo,
-          branch,
-          commit,
-          prUser: customMetadata.prUser,
-          playwrightVersion:
-            customMetadata.playwrightVersion ||
-            reportJson.config?.playwrightVersion,
-          workers: customMetadata.workers
-            ? Number(customMetadata.workers)
-            : undefined,
-          shardCurrent: customMetadata.shardCurrent
-            ? Number(customMetadata.shardCurrent)
-            : undefined,
-          shardTotal: customMetadata.shardTotal
-            ? Number(customMetadata.shardTotal)
-            : undefined,
-          startTime: customMetadata.startTime || reportJson.stats?.startTime,
-          durationMs: customMetadata.durationMs
-            ? Number(customMetadata.durationMs)
-            : reportJson.stats?.duration,
-          expectedCount: customMetadata.expectedCount
-            ? Number(customMetadata.expectedCount)
-            : undefined,
-          skippedCount: customMetadata.skippedCount
-            ? Number(customMetadata.skippedCount)
-            : undefined,
-          flakyCount: customMetadata.flakyCount
-            ? Number(customMetadata.flakyCount)
-            : undefined,
-          unexpectedCount: customMetadata.unexpectedCount
-            ? Number(customMetadata.unexpectedCount)
-            : undefined,
-          commitHref: customMetadata.commitHref,
-          prHref: customMetadata.prHref,
-          prTitle: customMetadata.prTitle,
-          buildHref: customMetadata.buildHref,
-        };
-
-        await ingestRawReport(metadata, reportJson);
-        await computeRunMetrics(runId);
-        count++;
+      if (keys.length === 0) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "No files selected" }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
       }
 
-      if (!list.truncated) break;
-      cursor = list.cursor;
+      console.log(
+        `[Re-ingest] Starting re-ingestion of ${keys.length} files...`
+      );
+
+      let count = 0;
+      const errors: string[] = [];
+
+      for (const key of keys) {
+        try {
+          console.log(`[Re-ingest] Processing ${key}...`);
+
+          const r2Obj = await env.R2.get(key);
+          if (!r2Obj) {
+            console.log(`[Re-ingest] Skipping ${key}, could not fetch.`);
+            errors.push(`${key}: could not fetch`);
+            continue;
+          }
+
+          const reportJson = await r2Obj.json<any>();
+          const customMetadata = r2Obj.customMetadata ?? {};
+
+          // Parse key: runs/${repo}/${branch}/${commit}/${runId}.json
+          const parts = key.split("/");
+          if (parts.length !== 5) {
+            errors.push(`${key}: invalid key format`);
+            continue;
+          }
+
+          const repo = parts[1];
+          const branch = parts[2];
+          const commit = parts[3];
+          const filename = parts[4];
+          const runId = filename.replace(".json", "");
+
+          const metadata: IngestionMetadata = {
+            runId,
+            repo,
+            branch,
+            commit,
+            prUser: customMetadata.prUser,
+            playwrightVersion:
+              customMetadata.playwrightVersion ||
+              reportJson.config?.playwrightVersion,
+            workers: customMetadata.workers
+              ? Number(customMetadata.workers)
+              : undefined,
+            shardCurrent: customMetadata.shardCurrent
+              ? Number(customMetadata.shardCurrent)
+              : undefined,
+            shardTotal: customMetadata.shardTotal
+              ? Number(customMetadata.shardTotal)
+              : undefined,
+            startTime: customMetadata.startTime || reportJson.stats?.startTime,
+            durationMs: customMetadata.durationMs
+              ? Number(customMetadata.durationMs)
+              : reportJson.stats?.duration,
+            expectedCount: customMetadata.expectedCount
+              ? Number(customMetadata.expectedCount)
+              : undefined,
+            skippedCount: customMetadata.skippedCount
+              ? Number(customMetadata.skippedCount)
+              : undefined,
+            flakyCount: customMetadata.flakyCount
+              ? Number(customMetadata.flakyCount)
+              : undefined,
+            unexpectedCount: customMetadata.unexpectedCount
+              ? Number(customMetadata.unexpectedCount)
+              : undefined,
+            commitHref: customMetadata.commitHref,
+            prHref: customMetadata.prHref,
+            prTitle: customMetadata.prTitle,
+            buildHref: customMetadata.buildHref,
+          };
+
+          await ingestRawReport(metadata, reportJson);
+          await computeRunMetrics(runId);
+          count++;
+        } catch (error) {
+          const errorMsg =
+            error instanceof Error ? error.message : String(error);
+          console.error(`[Re-ingest] Error processing ${key}:`, errorMsg);
+          errors.push(`${key}: ${errorMsg}`);
+        }
+      }
+
+      console.log(`[Re-ingest] Finished re-ingesting ${count} runs.`);
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          count,
+          errors: errors.length > 0 ? errors : undefined,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
 
-    console.log(`[Re-ingest] Finished re-ingesting ${count} runs.`);
-
-    return new Response(JSON.stringify({ ok: true, count }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    // GET requests are handled by the Reingest page component via the route above
+    return new Response("Method not allowed", { status: 405 });
   }),
 
   // Debug: list runs as JSON to verify state visibility

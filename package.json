@@ -19,8 +19,7 @@
     "release": "rw-scripts ensure-deploy-env && npm run clean && npm run build && wrangler deploy",
     "generate": "rw-scripts ensure-env && wrangler types --include-runtime false",
     "check": "npm run generate && npm run types",
-    "types": "tsc",
-    "seed": "rwsdk worker-run ./src/scripts/seed.ts"
+    "types": "tsc"
   },
   "dependencies": {
     "react": "19.3.0-canary-d6cae440-20260106",
