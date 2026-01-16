@@ -22,9 +22,7 @@ export type AppContext = {};
 
 export default defineApp([
   setCommonHeaders(),
-  ({ ctx }) => {
-    ctx;
-  },
+
   render(Document, [
     layout(AppLayout, [
       route("/health", Health),
