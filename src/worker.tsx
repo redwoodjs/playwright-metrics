@@ -9,6 +9,7 @@ import { Layout } from "@/app/layout/layout";
 import { RunDetail } from "@/app/pages/run-detail";
 import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
 import { TestDetail } from "@/app/pages/spec-detail/spec-detail";
+import { RepoSpecs } from "@/app/pages/repo-specs";
 import { adminApiRoutes, adminPageRoutes } from "@/app/pages/admin/routes";
 import { env, waitUntil } from "cloudflare:workers";
 import { db } from "./db";
@@ -29,6 +30,9 @@ export default defineApp([
       route("/", Home),
       route("/runs", Runs),
       route("/runs/:commitHash", RunDetail),
+      route("/runs/:org/:repo", Runs),
+      route("/runs/:org/:repo/specs", RepoSpecs),
+      route("/runs/:org/:repo/:branch", Runs),
       route("/leaderboard", Leaderboard),
       route("/specs/:specId", TestDetail),
       ...adminPageRoutes,

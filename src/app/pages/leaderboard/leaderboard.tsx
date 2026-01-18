@@ -1,6 +1,6 @@
 import { requestInfo } from "rwsdk/worker"
 import { getLeaderboardData } from "./actions";
-import { Histogram } from "@/app/components/histogram";
+import { AttemptHistory } from "@/app/components/attempt-history";
 
 function formatWasteTime(ms: number): string {
   if (ms < 1000) {
@@ -94,9 +94,13 @@ export const Leaderboard = async () => {
                 </div>
               </div>
 
-              {/* Histogram */}
+              {/* Attempt History */}
               <div className="flex items-center">
-                <Histogram results={row.recent_results} />
+                <AttemptHistory 
+                  attempts={row.recent_results.map(status => ({ status }))} 
+                  limit={12} 
+                  showEmptySlots={false}
+                />
               </div>
             </div>
           </div>

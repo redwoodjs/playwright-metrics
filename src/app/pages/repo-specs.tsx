@@ -1,0 +1,126 @@
+import { listRepoSpecs } from "./actions";
+import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
+import { AttemptHistory } from "../components/attempt-history";
+
+const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean }) => {
+  if (flaky) {
+    return (
+      <div className="flex items-center gap-1.5 text-yellow-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        <span className="text-xs font-medium uppercase tracking-tight">passed</span>
+      </div>
+    );
+  }
+
+  if (status === "passed") {
+    return (
+      <div className="flex items-center gap-1.5 text-green-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        <span className="text-xs font-medium uppercase tracking-tight">passed</span>
+      </div>
+    );
+  }
+
+  if (status === "failed" || status === "timedOut" || status === "interrupted") {
+    return (
+      <div className="flex items-center gap-1.5 text-red-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        <span className="text-xs font-medium uppercase tracking-tight">failed</span>
+      </div>
+    );
+  }
+
+  if (status === "skipped") {
+    return (
+      <div className="flex items-center gap-1.5 text-gray-400">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/></svg>
+        <span className="text-xs font-medium uppercase tracking-tight whitespace-nowrap">skipped</span>
+      </div>
+    );
+  }
+
+  return <span className="text-xs text-gray-400 uppercase tracking-tight">{status || "unknown"}</span>;
+};
+
+export const RepoSpecs = async ({ params }: { params: { org: string; repo: string } }) => {
+  const repoName = `${params.org}/${params.repo}`;
+  const rows = await listRepoSpecs(repoName);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Specs</h1>
+          <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+            <a href="/runs" className="hover:underline">All Runs</a>
+            <span>/</span>
+            <a href={`/runs/${repoName}`} className="hover:underline">{repoName}</a>
+            <span>/</span>
+            <span className="font-bold text-black">Specs</span>
+          </div>
+        </div>
+      </div>
+
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableHeadCell className="w-1/2">SPEC</TableHeadCell>
+            <TableHeadCell>PROJECT</TableHeadCell>
+            <TableHeadCell>ATTEMPTS</TableHeadCell>
+            <TableHeadCell>STATUS</TableHeadCell>
+            <TableHeadCell className="text-right whitespace-nowrap">ACTIONS</TableHeadCell>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={`${r.test_id}:${r.project_name}`}>
+                <TableCell>
+                  <div className="flex flex-col gap-0.5">
+                    <a 
+                      href={`/specs/${r.test_id}`} 
+                      className="font-bold text-sm text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                    >
+                      {r.title}
+                    </a>
+                    <span className="text-[10px] text-gray-500 font-mono">
+                      {r.file}:{r.line}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="text-xs text-gray-400 italic">
+                    {r.project_name || "default"}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <AttemptHistory attempts={r.attempts} limit={12} showEmptySlots={false} />
+                </TableCell>
+                <TableCell>
+                  <StatusIcon status={r.final_status} flaky={r.was_flaky} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <a 
+                    href={`/specs/${r.test_id}`}
+                    className="text-xs font-semibold text-gray-900 hover:underline inline-flex items-center gap-1 group"
+                  >
+                    Details
+                    <svg className="transition-transform group-hover:translate-x-0.5" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                  </a>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {rows.length === 0 && (
+        <div className="py-24 text-center border-2 border-dashed border-gray-100 rounded-xl">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 mb-3 text-gray-400">
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <h3 className="text-gray-900 font-semibold">No specs found</h3>
+          <p className="text-gray-500 text-sm mt-1">This repository hasn't reported any spec results yet.</p>
+        </div>
+      )}
+    </div>
+  );
+};

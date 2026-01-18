@@ -1,5 +1,5 @@
 import { getTestData, getTestHistory } from "./actions";
-import { Histogram } from "@/app/components/histogram";
+import { AttemptHistory } from "@/app/components/attempt-history";
 import { StatusIcon } from "../../components/status-icon";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "@/app/components/table";
 import { RunRow } from "@/app/components/run-row";
@@ -26,13 +26,11 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
     );
   }
 
-  // Prepare data for histogram (most recent results)
-  const recentResults = history.slice(0, 30).map(r => {
-    if (r.was_flaky) return "flaky";
-    if (r.status === "passed") return "pass";
-    if (r.status === "skipped") return "skip";
-    return "fail"; // failures, timedOut, interrupted, etc.
-  }); // Newest to oldest (newest on the left)
+  // Prepare data for history (most recent results)
+  const recentAttempts = history.slice(0, 50).reverse().map(run => ({
+    ...run,
+    status: run.status ?? "unknown"
+  })); // Oldest to newest
 
   return (
     <div className="space-y-6">
@@ -54,13 +52,12 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
         <div className="text-xs text-gray-400 mt-2 font-mono">ID: {test.id}</div>
       </div>
 
-      {/* Summary / Histogram */}
       <div className="border border-black p-4 bg-white">
         <h2 className="text-lg font-bold mb-3">Recent Stability</h2>
         <div className="flex items-center gap-4">
-          <Histogram results={recentResults as any} />
+          <AttemptHistory attempts={recentAttempts} limit={50} showEmptySlots={false} />
           <div className="text-sm text-gray-600">
-            Last {recentResults.length} runs
+            Last {recentAttempts.length} runs
           </div>
         </div>
       </div>

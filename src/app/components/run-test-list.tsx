@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "./table";
 import { StatusIcon } from "./status-icon";
 import { type RunTestRow } from "@/app/pages/actions";
-import { Histogram } from "./histogram";
+import { AttemptHistory } from "./attempt-history";
 
 interface RunTestListProps {
   tests: RunTestRow[];
@@ -67,35 +67,35 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
             <TableHeadCell>Project</TableHeadCell>
             <TableHeadCell>Attempts</TableHeadCell>
             <TableHeadCell>Status</TableHeadCell>
-            <TableHeadCell className="text-right">Actions</TableHeadCell>
           </TableHeader>
           <TableBody>
             {filteredTests.map((test) => (
               <TableRow key={test.id}>
                 <TableCell>
-                  <div className="font-medium text-xs truncate max-w-[400px]" title={test.title ?? ""}>
-                    {test.title}
-                  </div>
-                  <div className="text-[10px] text-gray-400 truncate max-w-[400px]" title={`${test.file}:${test.line}`}>
-                    {test.file}:{test.line}
-                  </div>
+                  <a 
+                    href={`/specs/${test.test_id}`}
+                    className="flex flex-col group"
+                  >
+                    <div className="font-medium text-xs truncate max-w-[400px] hover:underline" title={test.title ?? ""}>
+                      {test.title}
+                    </div>
+                    <div className="text-[10px] text-gray-400 truncate max-w-[400px]" title={`${test.file}:${test.line}`}>
+                      {test.file}:{test.line}
+                    </div>
+                  </a>
                 </TableCell>
                 <TableCell className="text-xs text-gray-500 italic">
                   {test.project_name}
                 </TableCell>
                 <TableCell>
-                  <Histogram results={test.attempt_statuses} />
+                  <AttemptHistory 
+                    attempts={test.attempt_statuses.map(status => ({ status }))} 
+                    limit={12} 
+                    showEmptySlots={false}
+                  />
                 </TableCell>
                 <TableCell>
                   <StatusIcon status={test.final_status ?? ""} result={test.final_status ?? ""} was_flaky={test.was_flaky} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <a
-                    href={`/specs/${test.test_id}`}
-                    className="text-black underline hover:no-underline text-xs"
-                  >
-                    Details →
-                  </a>
                 </TableCell>
               </TableRow>
             ))}

@@ -6,8 +6,8 @@ import type {
   Attempt,
 } from "@/db";
 
-export async function listRuns(): Promise<Run[]> {
-  const rows = await db
+export async function listRuns(filters?: { repo?: string; branch?: string }): Promise<Run[]> {
+  let query = db
     .selectFrom("runs")
     .select((eb) => [
       eb.fn.max("id").as("id"),
@@ -23,7 +23,16 @@ export async function listRuns(): Promise<Run[]> {
       eb.fn.sum("flaky_count").as("flaky_count"),
       eb.fn.sum("unexpected_count").as("unexpected_count"),
       eb.fn.count("id").as("shard_count"),
-    ])
+    ]);
+
+  if (filters?.repo) {
+    query = query.where("repo", "like", `${filters.repo}%`);
+  }
+  if (filters?.branch) {
+    query = query.where("branch", "=", filters.branch);
+  }
+
+  const rows = await query
     .groupBy(["repo", "commit_hash", "pr_user"])
     .orderBy("start_time", "desc")
     .execute();
@@ -458,6 +467,139 @@ export type RunFlakyRow = {
   file: string | null;
   line: number | null;
 };
+
+export type RepoSpecRow = {
+  test_id: string;
+  title: string | null;
+  file: string | null;
+  line: number | null;
+  project_name: string | null;
+  final_status: string | null;
+  was_flaky: boolean;
+  attempts: {
+    status: string;
+    retry: number;
+    run_id: string;
+  }[];
+};
+
+export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
+  // 1. Find all unique (test_id, project_name) for this repo
+  const uniqueSpecs = await db
+    .selectFrom("results as res")
+    .innerJoin("runs as r", "r.id", "res.run_id")
+    .innerJoin("specs as s", "s.id", "res.test_id")
+    .select((eb) => [
+      "res.test_id",
+      "res.project_name",
+      "s.title",
+      "s.file",
+      "s.line",
+      eb.fn.max("r.start_time").as("last_exec")
+    ])
+    .where("r.repo", "like", `${repo}%`)
+    .groupBy(["res.test_id", "res.project_name", "s.title", "s.file", "s.line"])
+    .orderBy("s.file", "asc")
+    .orderBy("s.line", "asc")
+    .execute();
+
+  if (uniqueSpecs.length === 0) return [];
+
+  // 2. Get history - fetch recent attempts for these specs in this repo
+  const allRepoAttempts = await db
+    .selectFrom("attempts as att")
+    .innerJoin("runs as r", "r.id", "att.run_id")
+    .innerJoin("results as res", (join) => 
+        join.onRef("res.run_id", "=", "att.run_id")
+            .onRef("res.test_id", "=", "att.test_id")
+            .onRef("res.project_id", "=", "att.project_id")
+    )
+    .select([
+        "att.test_id",
+        "res.project_name",
+        "att.status",
+        "att.retry",
+        "att.run_id",
+        "r.start_time",
+    ])
+    .where("r.repo", "like", `${repo}%`)
+    .orderBy("r.start_time", "desc")
+    .orderBy("att.retry", "desc")
+    .execute();
+    
+  // Group and keep last 12
+  const attemptsMap = new Map<string, any[]>();
+  for (const att of allRepoAttempts) {
+    const key = `${att.test_id}:${att.project_name}`;
+    const list = attemptsMap.get(key) ?? [];
+    if (list.length < 12) {
+      list.push(att);
+      attemptsMap.set(key, list);
+    }
+  }
+
+  // 3. Get the latest status and flaky info for each
+  const resultsInfo = new Map<string, { run_id: string; final_status: string }>();
+  for (const [key, atts] of attemptsMap.entries()) {
+    const latest = atts[0];
+    resultsInfo.set(key, {
+      run_id: latest.run_id,
+      final_status: latest.status
+    });
+  }
+  
+  const latestRunIds = Array.from(new Set(Array.from(resultsInfo.values()).map(v => v.run_id)));
+  
+  const flakyDetect = await db
+    .selectFrom("attempts")
+    .select((eb) => [
+        "test_id",
+        "run_id",
+        "project_id",
+        eb.fn.count("status").as("total_attempts"),
+        eb.fn.sum(eb.case().when("status", "=", "passed").then(1).else(0).end()).as("passed_count"),
+        eb.fn.sum(eb.case().when("status", "=", "failed").then(1).else(0).end()).as("failed_count"),
+    ])
+    .where("run_id", "in", latestRunIds)
+    .groupBy(["test_id", "run_id", "project_id"])
+    .execute();
+    
+  const flakyMap = new Set<string>();
+  for (const f of flakyDetect) {
+    if (Number(f.passed_count) > 0 && Number(f.failed_count) > 0) {
+        flakyMap.add(`${f.test_id}:${f.run_id}:${f.project_id}`);
+    }
+  }
+
+  return uniqueSpecs.map(s => {
+    const key = `${s.test_id}:${s.project_name}`;
+    const attempts = (attemptsMap.get(key) ?? [])
+        .sort((a, b) => {
+            if (a.start_time !== b.start_time) {
+                return a.start_time.localeCompare(b.start_time);
+            }
+            return a.retry - b.retry;
+        });
+
+    const info = resultsInfo.get(key);
+    const isFlaky = info ? flakyMap.has(`${s.test_id}:${info.run_id}:${s.project_name}`) : false;
+
+    return {
+      test_id: s.test_id,
+      title: s.title,
+      file: s.file,
+      line: s.line,
+      project_name: s.project_name,
+      final_status: info?.final_status ?? null,
+      was_flaky: isFlaky,
+      attempts: attempts.map(a => ({
+        status: a.status,
+        retry: a.retry,
+        run_id: a.run_id
+      }))
+    };
+  });
+}
 
 export async function listRunFlakies(commitHash: string): Promise<RunFlakyRow[]> {
   const baseRun = await db
