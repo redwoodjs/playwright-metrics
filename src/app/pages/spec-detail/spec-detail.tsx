@@ -1,13 +1,9 @@
 import { getTestData, getTestHistory } from "./actions";
 import { AttemptHistory } from "@/app/components/attempt-history";
-import { StatusIcon } from "../../components/status-icon";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "@/app/components/table";
 import { RunRow } from "@/app/components/run-row";
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString();
-}
+
 
 export const TestDetail = async ({ params }: { params: { specId: string } }) => {
   const specId = params.specId;
@@ -50,20 +46,13 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
           {test.line ? `:${test.line}` : ""}
         </div>
         <div className="text-xs text-gray-400 mt-2 font-mono">ID: {test.id}</div>
-
-        <div className="flex items-center gap-4">
-            <AttemptHistory attempts={recentAttempts} limit={50} showEmptySlots={false} />
-            <div className="text-sm text-gray-600">
-              Last {recentAttempts.length} runs
-            </div>
-          </div>
       </div>
 
    
 
       <div className="space-y-2">
        
-          <h2 className="text-lg font-bold">Run History</h2>
+        <h2 className="text-lg font-bold">Run History</h2>
       
         <TableContainer>
         <Table>

@@ -42,9 +42,10 @@ const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean 
   return <span className="text-xs text-gray-400 uppercase tracking-tight">{status || "unknown"}</span>;
 };
 
-export const RepoSpecs = async ({ params }: { params: { org: string; repo: string } }) => {
+export const RepoSpecs = async ({ params }: { params: { org: string; repo: string; branch?: string } }) => {
   const repoName = `${params.org}/${params.repo}`;
-  const rows = await listRepoSpecs(repoName);
+  const branchName = params.branch;
+  const rows = await listRepoSpecs(repoName, branchName);
 
   return (
     <div className="space-y-6">
@@ -55,6 +56,12 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
             <a href="/runs" className="hover:underline">All Runs</a>
             <span>/</span>
             <a href={`/runs/${repoName}`} className="hover:underline">{repoName}</a>
+            {branchName && (
+              <>
+                <span>/</span>
+                <a href={`/runs/${repoName}/${branchName}`} className="hover:underline">{branchName}</a>
+              </>
+            )}
             <span>/</span>
             <span className="font-bold text-black">Specs</span>
           </div>

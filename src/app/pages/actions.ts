@@ -483,9 +483,9 @@ export type RepoSpecRow = {
   }[];
 };
 
-export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
+export async function listRepoSpecs(repo: string, branch?: string): Promise<RepoSpecRow[]> {
   // 1. Find all unique (test_id, project_name) for this repo
-  const uniqueSpecs = await db
+  let uniqueSpecsQuery = db
     .selectFrom("results as res")
     .innerJoin("runs as r", "r.id", "res.run_id")
     .innerJoin("specs as s", "s.id", "res.test_id")
@@ -497,7 +497,13 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
       "s.line",
       eb.fn.max("r.start_time").as("last_exec")
     ])
-    .where("r.repo", "like", `${repo}%`)
+    .where("r.repo", "like", `${repo}%`);
+
+  if (branch) {
+    uniqueSpecsQuery = uniqueSpecsQuery.where("r.branch", "=", branch);
+  }
+
+  const uniqueSpecs = await uniqueSpecsQuery
     .groupBy(["res.test_id", "res.project_name", "s.title", "s.file", "s.line"])
     .orderBy("s.file", "asc")
     .orderBy("s.line", "asc")
@@ -506,7 +512,7 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
   if (uniqueSpecs.length === 0) return [];
 
   // 2. Get history - fetch all attempts for these specs in this repo
-  const allRepoAttempts = await db
+  let allRepoAttemptsQuery = db
     .selectFrom("attempts as att")
     .innerJoin("runs as r", "r.id", "att.run_id")
     .innerJoin("results as res", (join) => 
@@ -522,7 +528,13 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
         "att.run_id",
         "r.start_time",
     ])
-    .where("r.repo", "like", `${repo}%`)
+    .where("r.repo", "like", `${repo}%`);
+
+  if (branch) {
+    allRepoAttemptsQuery = allRepoAttemptsQuery.where("r.branch", "=", branch);
+  }
+
+  const allRepoAttempts = await allRepoAttemptsQuery
     .orderBy("r.start_time", "desc")
     .execute();
     

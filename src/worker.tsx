@@ -33,6 +33,7 @@ export default defineApp([
       route("/runs/:org/:repo", Runs),
       route("/runs/:org/:repo/specs", RepoSpecs),
       route("/runs/:org/:repo/:branch", Runs),
+      route("/runs/:org/:repo/:branch/specs", RepoSpecs),
       route("/leaderboard", Leaderboard),
       route("/specs/:specId", TestDetail),
       ...adminPageRoutes,

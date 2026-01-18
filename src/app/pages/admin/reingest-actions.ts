@@ -1,5 +1,6 @@
 "use server";
 import { env } from "cloudflare:workers";
+import { db } from "@/db";
 import {
   computeRunMetrics,
   ingestRawReport,
@@ -152,15 +153,19 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
 
 export async function reingestKeys(_prevState: any, formData: FormData) {
   const keys = formData.getAll("keys") as string[];
+  const deleteOldData = formData.get("delete_old_data") === "on";
 
   if (keys.length === 0) {
     return { ok: false, error: "No files selected" };
   }
 
-  console.log(`[Re-ingest] Starting re-ingestion of ${keys.length} files...`);
+  console.log(
+    `[Re-ingest] Starting re-ingestion of ${keys.length} files (deleteOldData: ${deleteOldData})...`
+  );
 
   let count = 0;
   const errors: string[] = [];
+  const cleanedRuns = new Set<string>();
 
   for (const key of keys) {
     try {
@@ -188,6 +193,14 @@ export async function reingestKeys(_prevState: any, formData: FormData) {
       const commit = parts[parts.length - 2];
       const branch = parts[parts.length - 3];
       const repo = parts.slice(1, parts.length - 3).join("/");
+
+      if (deleteOldData && !cleanedRuns.has(runId)) {
+        console.log(`[Re-ingest] Deleting old data for run ${runId}...`);
+        await db.deleteFrom("attempts").where("run_id", "=", runId).execute();
+        await db.deleteFrom("results").where("run_id", "=", runId).execute();
+        await db.deleteFrom("runs").where("id", "=", runId).execute();
+        cleanedRuns.add(runId);
+      }
 
       const metadata: IngestionMetadata = {
         runId,

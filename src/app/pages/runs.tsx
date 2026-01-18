@@ -46,6 +46,11 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
                 <>
                   <span>/</span>
                   <span className="font-bold text-black">{branchFilter}</span>
+                  <span className="mx-1">·</span>
+                  <a href={`/runs/${repoFilter}/${branchFilter}/specs`} className="text-gray-400 hover:text-black hover:underline flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    View Branch Specs
+                  </a>
                 </>
               )}
               {!branchFilter && (
@@ -75,13 +80,19 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
           {Object.entries(branches).map(([branch, branchRuns]) => (
             <div key={branch} className="space-y-2">
               <div className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded">
-                <a
-                  href={`/runs/${repo}/${branch}`}
-                  className="text-sm font-semibold hover:underline flex items-center gap-2"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-                  {branch}
-                </a>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`/runs/${repo}/${branch}`}
+                    className="text-sm font-semibold hover:underline flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                    {branch}
+                  </a>
+                  <a href={`/runs/${repo}/${branch}/specs`} className="text-[10px] text-gray-400 hover:text-black hover:underline flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Specs
+                  </a>
+                </div>
                 <span className="text-[10px] text-gray-400 font-mono italic">
                   {branchRuns.length} {branchRuns.length === 1 ? "run" : "runs"}
                 </span>

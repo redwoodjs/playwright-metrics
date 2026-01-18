@@ -127,38 +127,48 @@ export const ReingestForm = ({ prGroups }: ReingestFormProps) => {
         );
       })}
 
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={isPending}
-          className="px-4 py-2 bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
-        >
-          {isPending ? "Re-ingesting..." : "Re-ingest Selected Files"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const checkboxes = document.querySelectorAll(
-              'input[type="checkbox"]'
-            ) as NodeListOf<HTMLInputElement>;
-            checkboxes.forEach((cb) => (cb.checked = true));
-          }}
-          className="px-4 py-2 border border-black hover:bg-gray-100"
-        >
-          Select All
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const checkboxes = document.querySelectorAll(
-              'input[type="checkbox"]'
-            ) as NodeListOf<HTMLInputElement>;
-            checkboxes.forEach((cb) => (cb.checked = false));
-          }}
-          className="px-4 py-2 border border-black hover:bg-gray-100"
-        >
-          Deselect All
-        </button>
+      <div className="sticky bottom-0 bg-white border-t border-black p-4 -mx-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="submit"
+            disabled={isPending}
+            className="px-4 py-2 bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
+          >
+            {isPending ? "Re-ingesting..." : "Re-ingest Selected Files"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const checkboxes = document.querySelectorAll(
+                "input.object-checkbox, input.group-checkbox"
+              ) as NodeListOf<HTMLInputElement>;
+              checkboxes.forEach((cb) => (cb.checked = true));
+            }}
+            className="px-4 py-2 border border-black hover:bg-gray-100 text-sm"
+          >
+            Select All
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const checkboxes = document.querySelectorAll(
+                "input.object-checkbox, input.group-checkbox"
+              ) as NodeListOf<HTMLInputElement>;
+              checkboxes.forEach((cb) => (cb.checked = false));
+            }}
+            className="px-4 py-2 border border-black hover:bg-gray-100 text-sm"
+          >
+            Deselect All
+          </button>
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer font-semibold text-red-600 border border-red-200 bg-red-50 px-3 py-2 text-sm hover:bg-red-100 transition-colors">
+          <input
+            type="checkbox"
+            name="delete_old_data"
+            className="accent-red-600 w-4 h-4"
+          />
+          Delete old data before ingesting
+        </label>
       </div>
     </form>
   );
