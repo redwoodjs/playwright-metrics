@@ -30,7 +30,8 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
   const recentResults = history.slice(0, 30).map(r => {
     if (r.was_flaky) return "flaky";
     if (r.status === "passed") return "pass";
-    return "fail";
+    if (r.status === "skipped") return "skip";
+    return "fail"; // failures, timedOut, interrupted, etc.
   }); // Newest to oldest (newest on the left)
 
   return (

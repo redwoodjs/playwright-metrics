@@ -100,6 +100,10 @@ export async function ingestRawReport(
         const projectId = test.projectName ?? "";
         const resultId = `${runId}:${testId}:${projectId}`;
 
+        // Compute final status from attempts if available
+        const lastResult = test.results && test.results.length > 0 ? test.results[test.results.length - 1] : null;
+        const computedStatus = lastResult ? lastResult.status : (spec.ok ? "passed" : "failed");
+
         // Upsert result for this project
         await db
           .insertInto("results")
@@ -109,7 +113,7 @@ export async function ingestRawReport(
             test_id: testId,
             project_id: projectId,
             project_name: projectId,
-            status: spec.ok ? "passed" : "failed", // spec.ok is a general indicator
+            status: computedStatus,
           })
           .onConflict((oc) =>
             oc.column("id").doUpdateSet({
@@ -174,11 +178,12 @@ export async function computeRunMetrics(runId: string) {
   let earliestStart: string | null = null;
   let latestEndMs = 0;
 
-  const testIdToResults = new Map<string, any[]>();
+  const testProjectToResults = new Map<string, any[]>();
   for (const r of results) {
-    const arr = testIdToResults.get(r.test_id) ?? [];
+    const key = `${r.test_id}:${r.project_id ?? ""}`;
+    const arr = testProjectToResults.get(key) ?? [];
     arr.push(r);
-    testIdToResults.set(r.test_id, arr);
+    testProjectToResults.set(key, arr);
 
     if (r.start_time) {
       if (!earliestStart || r.start_time < earliestStart) {
@@ -195,14 +200,16 @@ export async function computeRunMetrics(runId: string) {
   let flakyCount = 0;
   let unexpectedCount = 0;
 
-  for (const [, arr] of testIdToResults) {
+  for (const [key, arr] of testProjectToResults) {
+    const [testId, projectId] = key.split(":");
     let maxRetry = -1;
     let finalStatus: string | null = null;
     let hadFail = false;
     let hadPass = false;
 
     for (const r of arr) {
-      if (r.status === "failed") hadFail = true;
+      const isFailed = r.status === "failed" || r.status === "timedOut" || r.status === "interrupted";
+      if (isFailed) hadFail = true;
       if (r.status === "passed") hadPass = true;
       if ((r.retry ?? 0) >= maxRetry) {
         maxRetry = r.retry ?? 0;
@@ -215,10 +222,20 @@ export async function computeRunMetrics(runId: string) {
       skippedCount += 1;
     } else if (flakyInRun) {
       flakyCount += 1;
-    } else if (finalStatus === "failed") {
+    } else if (finalStatus === "failed" || finalStatus === "timedOut" || finalStatus === "interrupted") {
       unexpectedCount += 1;
     } else if (finalStatus === "passed") {
       expectedCount += 1;
+    }
+
+    // Sync the final status back to the results table for this logical test/project result
+    if (finalStatus) {
+      await db.updateTable("results")
+        .set({ status: finalStatus })
+        .where("run_id", "=", runId)
+        .where("test_id", "=", testId)
+        .where("project_id", "=", projectId)
+        .execute();
     }
   }
 

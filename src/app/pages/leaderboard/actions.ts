@@ -10,7 +10,7 @@ export type LeaderboardRow = {
   flaky_runs: number;
   total_runs: number;
   waste_time_ms: number;
-  recent_results: ("pass" | "flaky" | "fail")[];
+  recent_results: ("pass" | "flaky" | "fail" | "skip")[];
 };
 
 /**
@@ -20,7 +20,7 @@ export type LeaderboardRow = {
 async function getRecentResults(
   testId: string,
   limit = 5,
-): Promise<("pass" | "flaky" | "fail")[]> {
+): Promise<("pass" | "flaky" | "fail" | "skip")[]> {
   // Get the last N runs for this test
   const maxRetry = db
     .selectFrom("attempts as r")
@@ -82,6 +82,10 @@ async function getRecentResults(
     // If only failure (no pass), it's a fail
     if (hadFailure) {
       return "fail";
+    }
+    // If skipped
+    if (finalStatus === "skipped") {
+      return "skip";
     }
     // Otherwise it passed
     return "pass";

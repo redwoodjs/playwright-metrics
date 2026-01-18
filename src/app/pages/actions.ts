@@ -94,7 +94,7 @@ export type RunTestRow = {
   status: string | null;
   expected: boolean | null;
   attempts: number | null;
-  attempt_statuses: ("pass" | "fail")[];
+  attempt_statuses: ("pass" | "fail" | "skip")[];
   final_status: string | null;
   was_flaky: boolean;
 };
@@ -201,17 +201,25 @@ export async function listRunTests(commitHash: string): Promise<RunTestRow[]> {
   // Fetch all individual attempts for this logical run to populate the histogram
   const allAttempts = await db
     .selectFrom("attempts as att")
-    .select(["att.test_id", "att.project_id", "att.status", "att.retry"])
+    .innerJoin("results as res", (join) => 
+      join
+        .onRef("res.test_id", "=", "att.test_id")
+        .onRef("res.run_id", "=", "att.run_id")
+        .onRef("res.project_id", "=", "att.project_id")
+    )
+    .select(["att.test_id", "res.project_name", "att.status", "att.retry"])
     .where("att.run_id", "in", shardIdsSubq)
     .orderBy("att.retry", "asc")
     .execute();
 
   // Group attempts by test_id and project_id for easy lookup
-  const attemptsMap = new Map<string, ("pass" | "fail")[]>();
+  const attemptsMap = new Map<string, ("pass" | "fail" | "skip")[]>();
   for (const att of allAttempts) {
-    const key = `${att.test_id}:${att.project_id ?? ""}`;
+    const key = `${att.test_id}:${att.project_name ?? ""}`;
     const statuses = attemptsMap.get(key) ?? [];
-    statuses.push(att.status === "passed" ? "pass" : "fail");
+    if (att.status === "passed") statuses.push("pass");
+    else if (att.status === "skipped") statuses.push("skip");
+    else statuses.push("fail");
     attemptsMap.set(key, statuses);
   }
 
