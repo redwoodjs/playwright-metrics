@@ -1,6 +1,7 @@
 import { TableRow, TableCell } from "./table";
 import { RunStats } from "./run-stats";
 import { AttemptHistory } from "./attempt-history";
+import { StatusIcon } from "./status-icon";
 
 interface RunRowProps {
   repo: string;
@@ -30,35 +31,6 @@ const formatDate = (dateStr: string | null) => {
   }
 };
 
-const RunStatusBadge: React.FC<{
-  expected: number;
-  skipped: number;
-  flaky: number;
-  unexpected: number;
-}> = ({ expected, skipped, flaky, unexpected }) => {
-  let label = "Passed";
-  let colorClass = "bg-green-100 text-green-700 border-green-200";
-
-  if (unexpected > 0) {
-    label = "Failed";
-    colorClass = "bg-red-100 text-red-700 border-red-200";
-  } else if (flaky > 0) {
-    label = "Flaky";
-    colorClass = "bg-yellow-100 text-yellow-700 border-yellow-200";
-  } else if (expected === 0 && skipped > 0) {
-    label = "Skipped";
-    colorClass = "bg-gray-100 text-gray-500 border-gray-200";
-  } else if (expected === 0 && unexpected === 0 && flaky === 0 && skipped === 0) {
-    label = "Empty";
-    colorClass = "bg-gray-50 text-gray-400 border-gray-100";
-  }
-
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${colorClass} font-medium uppercase tracking-wider`}>
-      {label}
-    </span>
-  );
-};
 
 export const RunRow: React.FC<RunRowProps> = ({
   repo,
@@ -78,6 +50,15 @@ export const RunRow: React.FC<RunRowProps> = ({
   showStatus = true,
   attemptStatuses,
 }) => {
+  const getStatus = () => {
+    if (unexpected > 0) return { status: "failed", label: "Failed" };
+    if (flaky > 0) return { status: "flaky", label: "Flaky" };
+    if (expected === 0 && skipped > 0) return { status: "skipped", label: "Skipped" };
+    if (expected === 0 && unexpected === 0 && flaky === 0 && skipped === 0) return { status: "empty", label: "Empty" };
+    return { status: "passed", label: "Passed" };
+  };
+
+  const { status, label } = getStatus();
   const showContext = showRepo || showBranch;
 
   return (
@@ -130,14 +111,11 @@ export const RunRow: React.FC<RunRowProps> = ({
       )}
       {showStatus && (
         <TableCell className="text-right">
-          {statusElement || (
-            <RunStatusBadge
-              expected={expected}
-              skipped={skipped}
-              flaky={flaky}
-              unexpected={unexpected}
-            />
-          )}
+          <div className="flex justify-end">
+            {statusElement || (
+              <StatusIcon status={status} result={label} />
+            )}
+          </div>
         </TableCell>
       )}
     </TableRow>

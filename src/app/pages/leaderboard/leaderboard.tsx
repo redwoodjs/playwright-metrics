@@ -27,8 +27,7 @@ export const Leaderboard = async () => {
 
   const sortOptions = [
     { label: "Rate", value: "rate" },
-    { label: "Flaky", value: "runs" },
-    { label: "Waste Time", value: "waste" },
+    { label: "Wasted Time", value: "waste" },
   ];
 
   return (
@@ -61,17 +60,17 @@ export const Leaderboard = async () => {
             {/* Test info */}
             <div className="flex-1 min-w-0">
               <div className="font-bold text-base mb-1">
-                <a href={`/specs/${row.test_id}`} className="hover:underline">
-                  {row.title || "Untitled spec"}
+                <a href={`/test-summary/${row.test_id}`} className="hover:underline">
+                  {row.title || "Untitled test"}
                 </a>
               </div>
               <div className="text-sm text-gray-600 truncate">{row.file || "Unknown file"}</div>
             </div>
 
             {/* Metrics */}
-            <div className="flex items-center gap-6">
+            <div className="flex-1 flex items-center justify-end gap-6">
               {/* Rate */}
-              <div className="text-right">
+              <div className="text-right w-16">
                 <div className="text-xs text-gray-500">RATE</div>
                 <div className="text-lg font-bold text-red-600">
                   {(row.flaky_rate * 100).toFixed(0)}%
@@ -79,7 +78,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Flaky/Total */}
-              <div className="text-right min-w-[8rem]">
+              <div className="text-right w-32">
                 <div className="text-xs text-gray-500 uppercase">Flaky / Total</div>
                 <div className="text-lg font-bold">
                   {row.flaky_runs} / {row.total_runs}
@@ -87,7 +86,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Waste */}
-              <div className="text-right">
+              <div className="text-right w-28">
                 <div className="text-xs text-gray-500">WASTE</div>
                 <div className="text-lg font-bold">
                   {formatWasteTime(row.waste_time_ms)}
@@ -95,7 +94,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Attempt History */}
-              <div className="flex items-center">
+              <div className="flex items-center justify-end w-[150px]">
                 <AttemptHistory 
                   attempts={row.recent_results.map(status => ({ status }))} 
                   limit={12} 

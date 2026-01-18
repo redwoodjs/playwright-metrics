@@ -27,15 +27,14 @@ export default defineApp([
 
   render(Document, [
     layout(Layout, [
-      route("/", Home),
+      route("/", Leaderboard),
       route("/runs", Runs),
       route("/runs/:commitHash", RunDetail),
       route("/runs/:org/:repo", Runs),
-      route("/runs/:org/:repo/specs", RepoSpecs),
+      route("/runs/:org/:repo/test-summary", RepoSpecs),
       route("/runs/:org/:repo/:branch", Runs),
-      route("/runs/:org/:repo/:branch/specs", RepoSpecs),
-      route("/leaderboard", Leaderboard),
-      route("/specs/:specId", TestDetail),
+      route("/runs/:org/:repo/:branch/test-summary", RepoSpecs),
+      route("/test-summary/:specId", TestDetail),
       ...adminPageRoutes,
     ]),
   ]),

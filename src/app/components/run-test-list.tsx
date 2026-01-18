@@ -38,7 +38,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
     <div className="space-y-4">
       <div className="flex items-center justify-between ">
         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
-          Results {filter ? `(${filter})` : ""}
+          Results for test run {filter ? `(${filter})` : ""}
         </h2>
         <div className="flex items-center justify-end gap-x-4 tabular-nums text-xs min-w-max">
           {[
@@ -63,7 +63,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
       <TableContainer>
         <Table>
           <TableHeader>
-            <TableHeadCell>Spec</TableHeadCell>
+            <TableHeadCell>Test</TableHeadCell>
             <TableHeadCell>Project</TableHeadCell>
             <TableHeadCell>Attempts</TableHeadCell>
             <TableHeadCell>Status</TableHeadCell>
@@ -71,9 +71,9 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
           <TableBody>
             {filteredTests.map((test) => (
               <TableRow key={test.id}>
-                <TableCell>
+                <TableCell className="w-full">
                   <a 
-                    href={`/specs/${test.test_id}`}
+                    href={`/test-summary/${test.test_id}`}
                     className="flex flex-col group"
                   >
                     <div className="font-medium text-xs truncate max-w-[400px] hover:underline" title={test.title ?? ""}>
@@ -84,7 +84,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
                     </div>
                   </a>
                 </TableCell>
-                <TableCell className="text-xs text-gray-500 italic">
+                <TableCell className="text-xs text-gray-500 italic nowrap">
                   {test.project_name}
                 </TableCell>
                 <TableCell>

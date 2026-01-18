@@ -51,7 +51,7 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Specs</h1>
+          <h1 className="text-2xl font-bold">Test Summary</h1>
           <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
             <a href="/runs" className="hover:underline">All Runs</a>
             <span>/</span>
@@ -63,7 +63,7 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
               </>
             )}
             <span>/</span>
-            <span className="font-bold text-black">Specs</span>
+            <span className="font-bold text-black">Test Summary</span>
           </div>
         </div>
       </div>
@@ -71,19 +71,17 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
       <TableContainer>
         <Table>
           <TableHeader>
-            <TableHeadCell className="w-1/2">SPEC</TableHeadCell>
+            <TableHeadCell className="w-1/2">TEST</TableHeadCell>
             <TableHeadCell>PROJECT</TableHeadCell>
-            <TableHeadCell>ATTEMPTS</TableHeadCell>
-            <TableHeadCell>STATUS</TableHeadCell>
-            <TableHeadCell className="text-right whitespace-nowrap">ACTIONS</TableHeadCell>
+            <TableHeadCell className="text-right">ATTEMPTS</TableHeadCell>
           </TableHeader>
           <TableBody>
             {rows.map((r) => (
               <TableRow key={`${r.test_id}:${r.project_name}`}>
-                <TableCell>
+                <TableCell className="w-full">
                   <div className="flex flex-col gap-0.5">
                     <a 
-                      href={`/specs/${r.test_id}`} 
+                      href={`/test-summary/${r.test_id}`} 
                       className="font-bold text-sm text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
                     >
                       {r.title}
@@ -99,19 +97,7 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
                   </span>
                 </TableCell>
                 <TableCell>
-                  <AttemptHistory attempts={r.attempts} limit={12} showEmptySlots={false} />
-                </TableCell>
-                <TableCell>
-                  <StatusIcon status={r.final_status} flaky={r.was_flaky} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <a 
-                    href={`/specs/${r.test_id}`}
-                    className="text-xs font-semibold text-gray-900 hover:underline inline-flex items-center gap-1 group"
-                  >
-                    Details
-                    <svg className="transition-transform group-hover:translate-x-0.5" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                  </a>
+                  <AttemptHistory attempts={r.attempts} limit={12} showEmptySlots={false} className="justify-end"/>
                 </TableCell>
               </TableRow>
             ))}
@@ -124,8 +110,8 @@ export const RepoSpecs = async ({ params }: { params: { org: string; repo: strin
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 mb-3 text-gray-400">
              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
           </div>
-          <h3 className="text-gray-900 font-semibold">No specs found</h3>
-          <p className="text-gray-500 text-sm mt-1">This repository hasn't reported any spec results yet.</p>
+          <h3 className="text-gray-900 font-semibold">No tests found</h3>
+          <p className="text-gray-500 text-sm mt-1">This repository hasn't reported any test results yet.</p>
         </div>
       )}
     </div>

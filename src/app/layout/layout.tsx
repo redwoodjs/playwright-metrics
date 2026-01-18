@@ -10,9 +10,7 @@ export const Layout: React.FC<any> = ({ children }) => {
             <a href="/runs" className="underline hover:no-underline">
               Runs
             </a>
-            <a href="/leaderboard" className="underline hover:no-underline">
-              Leaderboard
-            </a>
+            
           </nav>
         </div>
       </header>

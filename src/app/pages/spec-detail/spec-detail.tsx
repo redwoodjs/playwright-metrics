@@ -15,9 +15,9 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
   if (!test) {
     return (
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-red-600">Spec Not Found</h1>
-        <p className="mt-2">The spec with ID {specId} could not be found.</p>
-        <a href="/specs" className="underline mt-4 inline-block">Back to Flakiest Specs</a>
+        <h1 className="text-2xl font-bold text-red-600">Test Not Found</h1>
+        <p className="mt-2">The test with ID {specId} could not be found.</p>
+        <a href="/leaderboard" className="underline mt-4 inline-block">Back to Leaderboard</a>
       </div>
     );
   }
@@ -31,15 +31,15 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-sm">
-         <a href="/leaderboard" className="underline text-gray-500 hover:text-black">Leaderboard</a>
+         <a href="/" className="underline text-gray-500 hover:text-black">Leaderboard</a>
          <span className="text-gray-400">/</span>
-         <span className="text-gray-900 font-medium">Spec Detail</span>
+         <span className="text-gray-900 font-medium">Test Detail</span>
       </div>
 
       {/* Header */}
       <div className="border border-black p-4 bg-white">
         <h1 className="text-2xl font-bold truncate" title={test.title || ""}>
-          {test.title || "Untitled Spec"}
+          {test.title || "Untitled Test"}
         </h1>
         <div className="text-sm text-gray-600 mt-1">
           {test.file}
@@ -84,7 +84,7 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
             {history.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="py-8 text-center text-gray-500 italic">
-                  No run history found for this spec.
+                  No run history found for this test.
                 </TableCell>
               </TableRow>
             )}
