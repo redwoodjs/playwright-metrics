@@ -28,7 +28,7 @@ export default defineApp([
     layout(Layout, [
       route("/", Home),
       route("/runs", Runs),
-      route("/runs/:runId", RunDetail),
+      route("/runs/:commitHash", RunDetail),
       route("/leaderboard", Leaderboard),
       route("/specs/:specId", TestDetail),
       ...adminPageRoutes,
@@ -61,6 +61,7 @@ export default defineApp([
     const prHref = formData.get("pr-href")?.toString() ?? "";
     const prTitle = formData.get("pr-title")?.toString() ?? "";
     const buildHref = formData.get("build-href")?.toString() ?? "";
+    const labels = formData.get("labels")?.toString() ?? "";
 
     const reportJson = JSON.parse(await file.text());
 
@@ -84,6 +85,7 @@ export default defineApp([
       prHref,
       prTitle,
       buildHref,
+      labels,
     };
 
     // -----------------------------

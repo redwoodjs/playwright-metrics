@@ -7,20 +7,81 @@ import type {
 } from "@/db";
 
 export async function listRuns(): Promise<Run[]> {
-  return await db
-    .selectFrom("runs")
-    .selectAll()
-    .orderBy("start_time", "desc")
-    .execute();
-}
-
-export async function getRun(runId: string): Promise<Run | undefined> {
   const rows = await db
     .selectFrom("runs")
-    .selectAll()
-    .where("id", "=", runId)
+    .select((eb) => [
+      eb.fn.max("id").as("id"),
+      "repo",
+      "branch",
+      "commit_hash",
+      "pr_user",
+      "build_href",
+      eb.fn.min("start_time").as("start_time"),
+      eb.fn.sum("duration_ms").as("duration_ms"),
+      eb.fn.sum("expected_count").as("expected_count"),
+      eb.fn.sum("skipped_count").as("skipped_count"),
+      eb.fn.sum("flaky_count").as("flaky_count"),
+      eb.fn.sum("unexpected_count").as("unexpected_count"),
+      eb.fn.count("id").as("shard_count"),
+    ])
+    .groupBy(["repo", "commit_hash", "pr_user"])
+    .orderBy("start_time", "desc")
     .execute();
-  return rows[0];
+
+  return rows.map((r) => ({
+    ...r,
+    duration_ms: Number(r.duration_ms ?? 0),
+    expected_count: Number(r.expected_count ?? 0),
+    skipped_count: Number(r.skipped_count ?? 0),
+    flaky_count: Number(r.flaky_count ?? 0),
+    unexpected_count: Number(r.unexpected_count ?? 0),
+    shard_count: Number(r.shard_count ?? 1),
+  })) as any as Run[];
+}
+
+export async function getRun(commitHash: string): Promise<Run | undefined> {
+  const baseRun = await db
+    .selectFrom("runs")
+    .selectAll()
+    .where("commit_hash", "=", commitHash)
+    .executeTakeFirst();
+
+  if (!baseRun) return undefined;
+
+  // Find all shards in this logical run
+  const logicalRun = await db
+    .selectFrom("runs")
+    .select((eb) => [
+      eb.fn.max("id").as("id"),
+      "repo",
+      "branch",
+      "commit_hash",
+      "pr_user",
+      "build_href",
+      eb.fn.min("start_time").as("start_time"),
+      eb.fn.sum("duration_ms").as("duration_ms"),
+      eb.fn.sum("expected_count").as("expected_count"),
+      eb.fn.sum("skipped_count").as("skipped_count"),
+      eb.fn.sum("flaky_count").as("flaky_count"),
+      eb.fn.sum("unexpected_count").as("unexpected_count"),
+      eb.fn.count("id").as("shard_count"),
+    ])
+    .where("repo", "=", baseRun.repo)
+    .where("commit_hash", "=", baseRun.commit_hash)
+    .groupBy(["repo", "commit_hash", "pr_user"])
+    .executeTakeFirst();
+
+  if (!logicalRun) return undefined;
+
+  return {
+    ...logicalRun,
+    duration_ms: Number(logicalRun.duration_ms ?? 0),
+    expected_count: Number(logicalRun.expected_count ?? 0),
+    skipped_count: Number(logicalRun.skipped_count ?? 0),
+    flaky_count: Number(logicalRun.flaky_count ?? 0),
+    unexpected_count: Number(logicalRun.unexpected_count ?? 0),
+    shard_count: Number(logicalRun.shard_count ?? 1),
+  } as any as Run;
 }
 
 export type RunTestRow = {
@@ -38,8 +99,23 @@ export type RunTestRow = {
   was_flaky: boolean;
 };
 
-export async function listRunTests(runId: string): Promise<RunTestRow[]> {
-  // Attempts per test per project
+export async function listRunTests(commitHash: string): Promise<RunTestRow[]> {
+  const baseRun = await db
+    .selectFrom("runs")
+    .select(["repo", "commit_hash", "start_time"])
+    .where("commit_hash", "=", commitHash)
+    .executeTakeFirst();
+
+  if (!baseRun) return [];
+
+  // Subquery for all shard IDs in this logical run
+  const shardIdsSubq = db
+    .selectFrom("runs as r_shards")
+    .select("r_shards.id")
+    .where("r_shards.repo", "=", baseRun.repo)
+    .where("r_shards.commit_hash", "=", baseRun.commit_hash);
+
+  // Attempts per test per project across all shards
   const attemptsSubq = db
     .selectFrom("attempts as r")
     .select((eb) => [
@@ -47,7 +123,7 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
       "r.project_id as project_id",
       eb.fn.countAll().as("attempts"),
     ])
-    .where("r.run_id", "=", runId)
+    .where("r.run_id", "in", shardIdsSubq)
     .groupBy(["r.test_id", "r.project_id"])
     .as("a");
 
@@ -58,29 +134,32 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
       "r.project_id as project_id",
       eb.fn.max("r.retry").as("max_retry"),
     ])
-    .where("r.run_id", "=", runId)
+    .where("r.run_id", "in", shardIdsSubq)
     .groupBy(["r.test_id", "r.project_id"])
     .as("mr");
 
   const rows = await db
     .selectFrom("results as trt")
     .innerJoin("specs as t", "t.id", "trt.test_id")
+    .innerJoin("runs as r_main", "r_main.id", "trt.run_id")
+    .where("r_main.repo", "=", baseRun.repo)
+    .where("r_main.commit_hash", "=", baseRun.commit_hash)
     .leftJoin(attemptsSubq, (join) =>
       join
         .onRef("a.test_id", "=", "trt.test_id")
-        .onRef("a.project_id", "=", "trt.project_id")
+        .onRef("a.project_id", "=", "trt.project_id"),
     )
     .leftJoin(maxRetrySubq, (join) =>
       join
         .onRef("mr.test_id", "=", "trt.test_id")
-        .onRef("mr.project_id", "=", "trt.project_id")
+        .onRef("mr.project_id", "=", "trt.project_id"),
     )
     .leftJoin("attempts as rf", (join) =>
       join
         .onRef("rf.test_id", "=", "trt.test_id")
         .onRef("rf.run_id", "=", "trt.run_id")
         .onRef("rf.project_id", "=", "trt.project_id")
-        .onRef("rf.retry", "=", "mr.max_retry")
+        .onRef("rf.retry", "=", "mr.max_retry"),
     )
     .select((eb) => [
       "trt.id as id",
@@ -95,36 +174,36 @@ export async function listRunTests(runId: string): Promise<RunTestRow[]> {
       "rf.status as final_status",
       eb.and([
         eb.exists(
-          eb
+          db
             .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
-            .whereRef("r1.run_id", "=", "trt.run_id")
-            .whereRef("r1.test_id", "=", "trt.test_id")
-            .whereRef("r1.project_id", "=", "trt.project_id")
-            .where("r1.status", "=", "failed")
+            .where("r1.run_id", "in", shardIdsSubq)
+            .whereRef("r1.test_id", "=", eb.ref("trt.test_id"))
+            .whereRef("r1.project_id", "=", eb.ref("trt.project_id"))
+            .where("r1.status", "=", "failed"),
         ),
         eb.exists(
-          eb
+          db
             .selectFrom("attempts as r2")
             .select((qb) => qb.val(2).as("two"))
-            .whereRef("r2.run_id", "=", "trt.run_id")
-            .whereRef("r2.test_id", "=", "trt.test_id")
-            .whereRef("r2.project_id", "=", "trt.project_id")
-            .where("r2.status", "=", "passed")
+            .where("r2.run_id", "in", shardIdsSubq)
+            .whereRef("r2.test_id", "=", eb.ref("trt.test_id"))
+            .whereRef("r2.project_id", "=", eb.ref("trt.project_id"))
+            .where("r2.status", "=", "passed"),
         ),
       ]).as("was_flaky"),
     ])
-    .where("trt.run_id", "=", runId)
+    .groupBy(["trt.test_id", "trt.project_id"]) // Ensure one row per logical test
     .orderBy("t.file", "asc")
     .orderBy("t.line", "asc")
     .execute();
 
-  // Fetch all individual attempts for this run to populate the histogram
+  // Fetch all individual attempts for this logical run to populate the histogram
   const allAttempts = await db
-    .selectFrom("attempts")
-    .select(["test_id", "project_id", "status", "retry"])
-    .where("run_id", "=", runId)
-    .orderBy("retry", "asc")
+    .selectFrom("attempts as att")
+    .select(["att.test_id", "att.project_id", "att.status", "att.retry"])
+    .where("att.run_id", "in", shardIdsSubq)
+    .orderBy("att.retry", "asc")
     .execute();
 
   // Group attempts by test_id and project_id for easy lookup
@@ -372,32 +451,47 @@ export type RunFlakyRow = {
   line: number | null;
 };
 
-export async function listRunFlakies(runId: string): Promise<RunFlakyRow[]> {
+export async function listRunFlakies(commitHash: string): Promise<RunFlakyRow[]> {
+  const baseRun = await db
+    .selectFrom("runs")
+    .select(["repo", "commit_hash"])
+    .where("commit_hash", "=", commitHash)
+    .executeTakeFirst();
+
+  if (!baseRun) return [];
+
+  const shardIdsSubq = db
+    .selectFrom("runs as r_shards")
+    .select("r_shards.id")
+    .where("r_shards.repo", "=", baseRun.repo)
+    .where("r_shards.commit_hash", "=", baseRun.commit_hash);
+
   const rows = await db
     .selectFrom("results as trt")
     .innerJoin("specs as t", "t.id", "trt.test_id")
     .select(["trt.test_id as test_id", "t.title as title", "t.file as file", "t.line as line"])
-    .where("trt.run_id", "=", runId)
+    .where("trt.run_id", "in", shardIdsSubq)
     .where((eb) =>
       eb.and([
         eb.exists(
-          eb
+          db
             .selectFrom("attempts as r1")
             .select((qb) => qb.val(1).as("one"))
-            .whereRef("r1.run_id", "=", "trt.run_id")
-            .whereRef("r1.test_id", "=", "trt.test_id")
+            .where("r1.run_id", "in", shardIdsSubq)
+            .whereRef("r1.test_id", "=", eb.ref("trt.test_id"))
             .where("r1.status", "=", "failed"),
         ),
         eb.exists(
-          eb
+          db
             .selectFrom("attempts as r2")
             .select((qb) => qb.val(1).as("one"))
-            .whereRef("r2.run_id", "=", "trt.run_id")
-            .whereRef("r2.test_id", "=", "trt.test_id")
+            .where("r2.run_id", "in", shardIdsSubq)
+            .whereRef("r2.test_id", "=", eb.ref("trt.test_id"))
             .where("r2.status", "=", "passed"),
         ),
       ]),
     )
+    .groupBy(["trt.test_id"])
     .orderBy("t.file", "asc")
     .orderBy("t.line", "asc")
     .execute();
@@ -730,71 +824,73 @@ export async function listRegressions(
 
 // New flaky tests introduced by a specific run (flaky in this run, not flaky in lookback)
 export async function listRunNewFlakies(
-  runId: string,
+  commitHash: string,
   lookbackRuns = 20,
 ): Promise<RunFlakyRow[]> {
-  const run = await getRun(runId);
+  const run = await getRun(commitHash);
   if (!run?.start_time) return [];
 
-  // Flaky tests in this run
+  const baseRun = await db
+    .selectFrom("runs")
+    .select(["repo", "commit_hash"])
+    .where("commit_hash", "=", commitHash)
+    .executeTakeFirst();
+  if (!baseRun) return [];
+
+  // SQL Subquery for shards in the current run
+  const shardIdsSubq = db
+    .selectFrom("runs as r_shards")
+    .select("r_shards.id")
+    .where("r_shards.repo", "=", baseRun.repo)
+    .where("r_shards.commit_hash", "=", baseRun.commit_hash);
+
+  // SQL Subquery for prior run IDs (approximate for shards)
+  const priorRunsIdsSubq = db
+    .selectFrom("runs as r_prior")
+    .select("r_prior.id")
+    .where("r_prior.start_time", "<", run.start_time!)
+    .orderBy("r_prior.start_time", "desc")
+    .limit(lookbackRuns * (run.shard_count ?? 1));
+
+  // Flaky tests in this run (across all shards)
   const failNow = db
     .selectFrom("attempts")
     .select(["test_id"])
-    .where("run_id", "=", runId)
+    .where("run_id", "in", shardIdsSubq)
     .where("status", "=", "failed")
     .groupBy("test_id")
     .as("fn");
   const passNow = db
     .selectFrom("attempts")
     .select(["test_id"])
-    .where("run_id", "=", runId)
+    .where("run_id", "in", shardIdsSubq)
     .where("status", "=", "passed")
     .groupBy("test_id")
     .as("pn");
-  const flakiesNow = await db
+
+  const flakiesNowSubq = db
     .selectFrom(failNow)
     .innerJoin(passNow, "pn.test_id", "fn.test_id")
-    .select(["fn.test_id as test_id"])
-    .execute();
-
-  const ids = flakiesNow.map((x) => x.test_id);
-  if (ids.length === 0) return [];
-
-  // Prior runs (lookback) for those tests
-  const priorRuns = await db
-    .selectFrom("runs")
-    .select(["id", "start_time"])
-    .where("start_time", "<", run.start_time!)
-    .orderBy("start_time", "desc")
-    .limit(lookbackRuns)
-    .execute();
-  const priorIds = priorRuns.map((r) => r.id);
-  if (priorIds.length === 0) {
-    // All flakies are "new" if there is no history
-    return await db
-      .selectFrom("specs as t")
-      .select(["t.id as test_id", "t.title as title", "t.file as file", "t.line as line"])
-      .where("t.id", "in", ids)
-      .execute();
-  }
+    .select(["fn.test_id as test_id"]);
 
   // Which of those tests were flaky in any prior run?
   const priorFail = db
-    .selectFrom("attempts")
-    .select(["test_id", "run_id"])
-    .where("test_id", "in", ids)
-    .where("run_id", "in", priorIds)
-    .where("status", "=", "failed")
-    .groupBy(["test_id", "run_id"])
+    .selectFrom("attempts as pf_att")
+    .select(["pf_att.test_id", "pf_att.run_id"])
+    .where("pf_att.test_id", "in", flakiesNowSubq)
+    .where("pf_att.run_id", "in", priorRunsIdsSubq)
+    .where("pf_att.status", "=", "failed")
+    .groupBy(["pf_att.test_id", "pf_att.run_id"])
     .as("pf");
   const priorPass = db
-    .selectFrom("attempts")
-    .select(["test_id", "run_id"])
-    .where("test_id", "in", ids)
-    .where("run_id", "in", priorIds)
-    .where("status", "=", "passed")
-    .groupBy(["test_id", "run_id"])
+    .selectFrom("attempts as pp_att")
+    .select(["pp_att.test_id", "pp_att.run_id"])
+    .where("pp_att.test_id", "in", flakiesNowSubq)
+    .where("pp_att.run_id", "in", priorRunsIdsSubq)
+    .where("pp_att.status", "=", "passed")
+    .groupBy(["pp_att.test_id", "pp_att.run_id"])
     .as("pp");
+
   const priorFlaky = await db
     .selectFrom(priorFail)
     .innerJoin(priorPass, (join) =>
@@ -806,7 +902,12 @@ export async function listRunNewFlakies(
     .execute();
   const priorFlakySet = new Set(priorFlaky.map((x) => x.test_id));
 
-  const newIds = ids.filter((id) => !priorFlakySet.has(id));
+  // Get the full list of flakies in this run to filter out the prior ones
+  const flakiesNow = await flakiesNowSubq.execute();
+  const newIds = flakiesNow
+    .map((f) => f.test_id)
+    .filter((id) => !priorFlakySet.has(id));
+
   if (newIds.length === 0) return [];
 
   return await db

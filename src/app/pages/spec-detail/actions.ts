@@ -13,6 +13,7 @@ export type TestHistoryRow = {
   owner: string | null;
   repo: string | null;
   branch: string | null;
+  commit_hash: string | null;
   project_name: string | null;
   status: string | null;
   duration_ms: number;
@@ -46,9 +47,9 @@ export async function getTestHistory(
       "trt.run_id",
       "trt.project_name",
       "tr.start_time",
-      "tr.repo as owner",
-      "tr.branch as repo",
-      "tr.commit_hash as branch",
+      "tr.repo",
+      "tr.branch",
+      "tr.commit_hash",
       "trt.status as final_status",
       "tr.expected_count",
       "tr.skipped_count",
@@ -92,9 +93,10 @@ export async function getTestHistory(
       run_id: r.run_id,
       project_name: r.project_name,
       start_time: r.start_time,
-      owner: r.owner,
+      owner: r.repo, // Wait, repo IS owner/repo in this app usually
       repo: r.repo,
       branch: r.branch,
+      commit_hash: r.commit_hash,
       status: r.final_status,
       duration_ms: metrics?.duration ?? 0,
       was_flaky: Boolean(metrics?.hadPass && metrics?.hadFail),

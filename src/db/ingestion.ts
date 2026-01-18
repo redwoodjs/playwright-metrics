@@ -25,6 +25,7 @@ export type IngestionMetadata = {
   flaky_count?: number;
   unexpectedCount?: number;
   unexpected_count?: number;
+  labels?: string;
 };
 
 /**
@@ -61,6 +62,7 @@ export async function ingestRawReport(
       skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
       flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
       unexpected_count: metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
+      labels: metadata.labels ?? "",
     })
     .onConflict((oc) =>
       oc.column("id").doUpdateSet({
@@ -73,6 +75,7 @@ export async function ingestRawReport(
         pr_title: (eb) => eb.ref("excluded.pr_title"),
         build_href: (eb) => eb.ref("excluded.build_href"),
         playwright_version: (eb) => eb.ref("excluded.playwright_version"),
+        labels: (eb) => eb.ref("excluded.labels"),
         // We don't update shard info or counts here as they are partial per shard
         // they will be updated by computeRunMetrics at the end.
       })

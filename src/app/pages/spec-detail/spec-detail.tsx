@@ -70,21 +70,19 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
         <TableContainer>
         <Table>
           <TableHeader>
-            <TableHeadCell>Run ID</TableHeadCell>
             <TableHeadCell>Commit</TableHeadCell>
-            <TableHeadCell>User</TableHeadCell>
+            <TableHeadCell>Context (Repo@Branch)</TableHeadCell>
             <TableHeadCell>Start Time</TableHeadCell>
             <TableHeadCell>Test Status</TableHeadCell>
-            <TableHeadCell className="text-right">Run Results</TableHeadCell>
+            <TableHeadCell className="text-right">Run Stats</TableHeadCell>
           </TableHeader>
           <TableBody>
             {history.map((run) => (
               <RunRow
                 key={run.run_id}
-                id={run.run_id}
-                repo={run.owner ?? ""}
-                branch={run.repo ?? ""}
-                commit={run.branch ?? ""}
+                repo={run.repo ?? ""}
+                branch={run.branch ?? ""}
+                commit={run.commit_hash ?? ""}
                 user={run.pr_user ?? ""}
                 startTime={run.start_time}
                 expected={run.expected_count}

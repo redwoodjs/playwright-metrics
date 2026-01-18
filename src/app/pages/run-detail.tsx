@@ -1,95 +1,64 @@
-import { getRun, listRunTests, listRunFlakies, listRunNewFlakies } from "./actions";
-import { StatusIcon } from "../components/status-icon";
-import { Histogram } from "../components/histogram";
-import { formatDuration } from "../shared/format";
-import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
+import { getRun, listRunTests } from "./actions";
+import { RunTestList } from "../components/run-test-list";
 
-export const RunDetail = async ({ params }: { params: { runId: string } }) => {
-  const runId = params.runId;
-  const run = await getRun(runId);
-  const tests = await listRunTests(runId);
-  const flakies = await listRunFlakies(runId);
-  const newFlakies = await listRunNewFlakies(runId);
+export const RunDetail = async ({ params }: { params: { commitHash: string } }) => {
+  const commitHash = params.commitHash;
+  const run = await getRun(commitHash);
+  const tests = await listRunTests(commitHash);
 
   if (!run) {
     return (
       <div className="space-y-4">
         <a href="/runs" className="text-sm text-blue-600 hover:underline">← Back to Runs</a>
         <h1 className="text-2xl font-semibold">Run not found</h1>
+        <p className="text-gray-500">No logical run found for commit <span className="font-mono">{commitHash}</span></p>
       </div>
     );
   }
 
+  const runStats = {
+    expected: Number(run.expected_count ?? 0),
+    skipped: Number(run.skipped_count ?? 0),
+    flaky: Number(run.flaky_count ?? 0),
+    unexpected: Number(run.unexpected_count ?? 0),
+  };
+
   return (
-    <div className="space-y-4">
-      <a href="/runs" className="underline text-sm">← Back to Runs</a>
-      <h1 className="text-2xl font-bold">Run {run.id}</h1>
-      <div className="space-y-1">
-        <div><b>Repository:</b> {run.repo}/{run.branch}@{run.commit_hash}</div>
-        <div><b>Commit:</b> <span title={run.commit_href ?? ""} className="font-mono">{run.commit_hash}</span></div>
-        {run.pr_user ? <div><b>User:</b> {run.pr_user}</div> : null}
-        <div><b>Start:</b> {run.start_time || "-"}</div>
-        <div className="flex gap-4 border-t border-black pt-2 mt-2">
-          <div className="flex items-center gap-1"><StatusIcon status="passed" /> <span>{run.expected_count}</span></div>
-          <div className="flex items-center gap-1"><StatusIcon status="failed" /> <span>{run.unexpected_count}</span></div>
-          <div className="flex items-center gap-1"><StatusIcon status="flaky" /> <span>{run.flaky_count}</span></div>
-          <div className="flex items-center gap-1"><StatusIcon status="skipped" /> <span>{run.skipped_count}</span></div>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <a href="/runs" className="text-xs text-gray-500 hover:underline mb-2 flex items-center gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          Back to Runs
+        </a>
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold font-mono truncate max-w-[600px]" title={run.commit_hash}>
+              {run.repo}/{run.branch}@{run.commit_hash.slice(0, 7)}
+            </h1>
+            <div className="flex items-center gap-4 text-xs text-gray-500">
+              {run.pr_user && <span>by <b>{run.pr_user}</b></span>}
+              <span>{run.start_time || "-"}</span>
+              {run.shard_count && run.shard_count > 1 && (
+                <div className="text-[10px] bg-gray-100 text-gray-500 px-1 rounded flex items-center gap-0.5 not-italic" title={`${run.shard_count} shards connected`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                  {run.shard_count} shards
+                </div>
+              )}
+            </div>
+            {run.labels && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {run.labels.split(",").map(label => (
+                  <span key={label} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
+                    {label.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-xl font-semibold">Specs</h2>
-        {flakies.length > 0 && (
-          <div className="border border-black p-2 bg-yellow-50 text-sm">
-            <div className="font-bold mb-1">Flaky in this run</div>
-            <ul className="list-disc pl-6">
-              {flakies.map((f) => (
-                <li key={f.test_id}>
-                  {f.title} — {f.file}:{f.line}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {newFlakies.length > 0 && (
-          <div className="border border-black p-2 bg-green-50 text-sm">
-            <div className="font-bold mb-1">New flaky specs introduced</div>
-            <ul className="list-disc pl-6">
-              {newFlakies.map((f) => (
-                <li key={f.test_id}>
-                  {f.title} — {f.file}:{f.line}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <TableContainer>
-          <Table>
-            <TableHeader>
-              <TableHeadCell>Title</TableHeadCell>
-              <TableHeadCell>File</TableHeadCell>
-              <TableHeadCell>Attempts</TableHeadCell>
-              <TableHeadCell>Final Result</TableHeadCell>
-            </TableHeader>
-            <TableBody>
-              {tests.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell>{t.title}</TableCell>
-                  <TableCell className="break-all">
-                    {t.file}:{t.line}
-                  </TableCell>
-                  <TableCell>
-                    <Histogram results={t.attempt_statuses} />
-                  </TableCell>
-                  <TableCell>
-                    <StatusIcon status={t.final_status ?? ""} was_flaky={t.was_flaky} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </div>
+      <RunTestList tests={tests} runStats={runStats} />
     </div>
   );
 };

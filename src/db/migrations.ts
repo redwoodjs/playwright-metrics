@@ -70,4 +70,19 @@ export const migrations = {
       ];
     },
   },
+  "003_add_run_labels": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("runs")
+          .addColumn("labels", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      return [
+        await db.schema.alterTable("runs").dropColumn("labels").execute(),
+      ];
+    },
+  },
 } satisfies Migrations;

@@ -15,12 +15,12 @@ const IconWrapper: React.FC<{ children: React.ReactNode; colorClass: string; tit
   result 
 }) => {
   return (
-    <div className={`flex items-center gap-1.5 ${colorClass} font-bold text-xs tabular-nums h-5`} title={title}>
-      <div className="flex-shrink-0 flex items-center justify-center w-4 h-4">
+    <div className="flex items-center gap-1.5 text-[10px] tabular-nums h-5" title={title}>
+      <div className={`flex-shrink-0 flex items-center justify-center w-3.5 h-3.5 ${colorClass}`}>
         {children}
       </div>
-      <div className="min-w-[2ch]">
-        {result ?? title}
+      <div className={`font-bold ${colorClass}`}>
+        {result ?? ""}
       </div>
     </div>
   );
@@ -71,7 +71,7 @@ export const StatusIcon: React.FC<StatusIconProps> = ({ status, was_flaky, resul
     default:
       return (
         <div className="flex items-center gap-1.5 text-gray-400 font-bold text-xs uppercase tabular-nums" title={status}>
-          <span>{result ?? status}</span>
+          <span>{result}</span>
         </div>
       );
   }

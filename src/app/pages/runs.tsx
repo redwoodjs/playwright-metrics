@@ -19,17 +19,15 @@ export const Runs = async () => {
       <TableContainer>
         <Table>
           <TableHeader>
-            <TableHeadCell>Run ID</TableHeadCell>
             <TableHeadCell>Commit</TableHeadCell>
-            <TableHeadCell>User</TableHeadCell>
-            <TableHeadCell>Start</TableHeadCell>
-            <TableHeadCell className="text-right">Results</TableHeadCell>
+            <TableHeadCell>Context</TableHeadCell>
+            <TableHeadCell>Date</TableHeadCell>
+            <TableHeadCell>Results</TableHeadCell>
           </TableHeader>
           <TableBody>
             {runs.map((r) => (
               <RunRow
-                key={r.id}
-                id={r.id}
+                key={r.commit_hash}
                 repo={r.repo}
                 branch={r.branch}
                 commit={r.commit_hash}
@@ -39,6 +37,7 @@ export const Runs = async () => {
                 skipped={r.skipped_count}
                 flaky={r.flaky_count}
                 unexpected={r.unexpected_count}
+                shardCount={r.shard_count}
               />
             ))}
           </TableBody>
