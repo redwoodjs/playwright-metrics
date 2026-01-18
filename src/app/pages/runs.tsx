@@ -65,7 +65,7 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
       {Object.entries(groupedByRepo).map(([repo, branches]) => (
         <div key={repo} className="space-y-4">
           {!repoFilter && (
-            <div className="border-b border-black pb-1">
+            <div className="pb-1">
               <a href={`/runs/${repo}`} className="text-lg font-bold hover:underline">
                 {repo}
               </a>

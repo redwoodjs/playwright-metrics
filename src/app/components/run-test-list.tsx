@@ -36,7 +36,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between px-2">
+      <div className="flex items-center justify-between ">
         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
           Results {filter ? `(${filter})` : ""}
         </h2>

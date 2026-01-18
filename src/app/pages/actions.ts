@@ -478,7 +478,7 @@ export type RepoSpecRow = {
   was_flaky: boolean;
   attempts: {
     status: string;
-    retry: number;
+    retry?: number;
     run_id: string;
   }[];
 };
@@ -505,7 +505,7 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
 
   if (uniqueSpecs.length === 0) return [];
 
-  // 2. Get history - fetch recent attempts for these specs in this repo
+  // 2. Get history - fetch all attempts for these specs in this repo
   const allRepoAttempts = await db
     .selectFrom("attempts as att")
     .innerJoin("runs as r", "r.id", "att.run_id")
@@ -524,65 +524,46 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
     ])
     .where("r.repo", "like", `${repo}%`)
     .orderBy("r.start_time", "desc")
-    .orderBy("att.retry", "desc")
     .execute();
     
-  // Group and keep last 12
-  const attemptsMap = new Map<string, any[]>();
+  // Group by (test_id, project_name, run_id) to find flakiness per run
+  const runResultsMap = new Map<string, Map<string, { status: string, was_flaky: boolean, start_time: string }>>();
   for (const att of allRepoAttempts) {
-    const key = `${att.test_id}:${att.project_name}`;
-    const list = attemptsMap.get(key) ?? [];
-    if (list.length < 12) {
-      list.push(att);
-      attemptsMap.set(key, list);
-    }
-  }
-
-  // 3. Get the latest status and flaky info for each
-  const resultsInfo = new Map<string, { run_id: string; final_status: string }>();
-  for (const [key, atts] of attemptsMap.entries()) {
-    const latest = atts[0];
-    resultsInfo.set(key, {
-      run_id: latest.run_id,
-      final_status: latest.status
-    });
-  }
-  
-  const latestRunIds = Array.from(new Set(Array.from(resultsInfo.values()).map(v => v.run_id)));
-  
-  const flakyDetect = await db
-    .selectFrom("attempts")
-    .select((eb) => [
-        "test_id",
-        "run_id",
-        "project_id",
-        eb.fn.count("status").as("total_attempts"),
-        eb.fn.sum(eb.case().when("status", "=", "passed").then(1).else(0).end()).as("passed_count"),
-        eb.fn.sum(eb.case().when("status", "=", "failed").then(1).else(0).end()).as("failed_count"),
-    ])
-    .where("run_id", "in", latestRunIds)
-    .groupBy(["test_id", "run_id", "project_id"])
-    .execute();
+    const specKey = `${att.test_id}:${att.project_name}`;
+    const runMap = runResultsMap.get(specKey) ?? new Map();
     
-  const flakyMap = new Set<string>();
-  for (const f of flakyDetect) {
-    if (Number(f.passed_count) > 0 && Number(f.failed_count) > 0) {
-        flakyMap.add(`${f.test_id}:${f.run_id}:${f.project_id}`);
+    const runInfo = runMap.get(att.run_id) ?? { 
+      status: att.status, 
+      was_flaky: false, 
+      start_time: att.start_time,
+      passed: false,
+      failed: false
+    };
+
+    if (att.status === 'passed') runInfo.passed = true;
+    if (att.status === 'failed' || att.status === 'timedOut' || att.status === 'interrupted') runInfo.failed = true;
+    
+    // Final status for the run (latest attempt)
+    if (att.retry === 0 || !runMap.has(att.run_id)) {
+        runInfo.status = att.status;
     }
+
+    runInfo.was_flaky = runInfo.passed && runInfo.failed;
+    runMap.set(att.run_id, runInfo);
+    runResultsMap.set(specKey, runMap);
   }
 
   return uniqueSpecs.map(s => {
-    const key = `${s.test_id}:${s.project_name}`;
-    const attempts = (attemptsMap.get(key) ?? [])
-        .sort((a, b) => {
-            if (a.start_time !== b.start_time) {
-                return a.start_time.localeCompare(b.start_time);
-            }
-            return a.retry - b.retry;
-        });
+    const specKey = `${s.test_id}:${s.project_name}`;
+    const runMap = runResultsMap.get(specKey);
+    
+    // Sort runs by start_time DESC and take last 12
+    const sortedRuns = Array.from(runMap?.values() ?? [])
+      .sort((a, b) => b.start_time.localeCompare(a.start_time))
+      .slice(0, 12)
+      .reverse(); // Back to ASC for display
 
-    const info = resultsInfo.get(key);
-    const isFlaky = info ? flakyMap.has(`${s.test_id}:${info.run_id}:${s.project_name}`) : false;
+    const latestRun = sortedRuns[sortedRuns.length - 1];
 
     return {
       test_id: s.test_id,
@@ -590,12 +571,11 @@ export async function listRepoSpecs(repo: string): Promise<RepoSpecRow[]> {
       file: s.file,
       line: s.line,
       project_name: s.project_name,
-      final_status: info?.final_status ?? null,
-      was_flaky: isFlaky,
-      attempts: attempts.map(a => ({
-        status: a.status,
-        retry: a.retry,
-        run_id: a.run_id
+      final_status: latestRun?.status ?? null,
+      was_flaky: latestRun?.was_flaky ?? false,
+      attempts: sortedRuns.map(r => ({
+        status: r.was_flaky ? "flaky" : (r.status || "unknown"),
+        run_id: "" 
       }))
     };
   });

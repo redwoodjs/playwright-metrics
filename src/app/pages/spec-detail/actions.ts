@@ -23,6 +23,7 @@ export type TestHistoryRow = {
   flaky_count: number;
   unexpected_count: number;
   pr_user: string | null;
+  attempt_statuses: string[];
 };
 
 export async function getTestData(testId: string): Promise<TestMetadata | null> {
@@ -69,19 +70,21 @@ export async function getTestHistory(
   // Fetch all results for these runs to compute flakiness and duration
   const results = await db
     .selectFrom("attempts")
-    .select(["run_id", "project_id", "status", "duration_ms"])
+    .select(["run_id", "project_id", "status", "duration_ms", "retry"])
     .where("test_id", "=", testId)
     .where("run_id", "in", runIds)
+    .orderBy("retry", "asc")
     .execute();
 
   // Aggregate results by run_id AND project_id
-  const projectMetrics = new Map<string, { duration: number; hadPass: boolean; hadFail: boolean }>();
+  const projectMetrics = new Map<string, { duration: number; hadPass: boolean; hadFail: boolean; statuses: string[] }>();
   for (const r of results) {
     const key = `${r.run_id}:${r.project_id ?? ""}`;
-    const metrics = projectMetrics.get(key) ?? { duration: 0, hadPass: false, hadFail: false };
+    const metrics = projectMetrics.get(key) ?? { duration: 0, hadPass: false, hadFail: false, statuses: [] };
     metrics.duration += (r.duration_ms ?? 0);
     if (r.status === "passed") metrics.hadPass = true;
-    if (r.status === "failed") metrics.hadFail = true;
+    if (r.status === "failed" || r.status === "timedOut" || r.status === "interrupted") metrics.hadFail = true;
+    metrics.statuses.push(r.status || "unknown");
     projectMetrics.set(key, metrics);
   }
 
@@ -105,6 +108,7 @@ export async function getTestHistory(
       flaky_count: r.flaky_count,
       unexpected_count: r.unexpected_count,
       pr_user: r.pr_user,
+      attempt_statuses: metrics?.statuses ?? [],
     };
   });
 }

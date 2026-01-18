@@ -28,8 +28,8 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
 
   // Prepare data for history (most recent results)
   const recentAttempts = history.slice(0, 50).reverse().map(run => ({
-    ...run,
-    status: run.status ?? "unknown"
+    status: run.was_flaky ? "flaky" : (run.status ?? "unknown"),
+    run_id: run.run_id
   })); // Oldest to newest
 
   return (
@@ -50,29 +50,28 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
           {test.line ? `:${test.line}` : ""}
         </div>
         <div className="text-xs text-gray-400 mt-2 font-mono">ID: {test.id}</div>
-      </div>
 
-      <div className="border border-black p-4 bg-white">
-        <h2 className="text-lg font-bold mb-3">Recent Stability</h2>
         <div className="flex items-center gap-4">
-          <AttemptHistory attempts={recentAttempts} limit={50} showEmptySlots={false} />
-          <div className="text-sm text-gray-600">
-            Last {recentAttempts.length} runs
+            <AttemptHistory attempts={recentAttempts} limit={50} showEmptySlots={false} />
+            <div className="text-sm text-gray-600">
+              Last {recentAttempts.length} runs
+            </div>
           </div>
-        </div>
       </div>
 
-      {/* Run History */}
+   
+
       <div className="space-y-2">
-        <h2 className="text-lg font-bold px-2">Run History</h2>
+       
+          <h2 className="text-lg font-bold">Run History</h2>
+      
         <TableContainer>
         <Table>
           <TableHeader>
             <TableHeadCell>Commit</TableHeadCell>
-            <TableHeadCell>Context (Repo@Branch)</TableHeadCell>
-            <TableHeadCell>Start Time</TableHeadCell>
-            <TableHeadCell>Test Status</TableHeadCell>
-            <TableHeadCell className="text-right">Run Stats</TableHeadCell>
+            <TableHeadCell className="w-full">Date</TableHeadCell>
+            <TableHeadCell>Attempts</TableHeadCell>
+            <TableHeadCell className="text-right">Status</TableHeadCell>
           </TableHeader>
           <TableBody>
             {history.map((run) => (
@@ -83,16 +82,19 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
                 commit={run.commit_hash ?? ""}
                 user={run.pr_user ?? ""}
                 startTime={run.start_time}
-                expected={run.expected_count}
-                skipped={run.skipped_count}
-                flaky={run.flaky_count}
-                unexpected={run.unexpected_count}
-                statusElement={<StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />}
+                expected={run.status === "passed" || run.was_flaky ? 1 : 0}
+                skipped={run.status === "skipped" ? 1 : 0}
+                flaky={run.was_flaky ? 1 : 0}
+                unexpected={(run.status === "failed" || run.status === "timedOut" || run.status === "interrupted") && !run.was_flaky ? 1 : 0}
+                showRepo={false}
+                showBranch={false}
+                showStats={false}
+                attemptStatuses={run.attempt_statuses}
               />
             ))}
             {history.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-gray-500 italic">
+                <TableCell colSpan={3} className="py-8 text-center text-gray-500 italic">
                   No run history found for this spec.
                 </TableCell>
               </TableRow>

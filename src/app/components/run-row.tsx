@@ -1,6 +1,6 @@
-import React from "react";
 import { TableRow, TableCell } from "./table";
 import { RunStats } from "./run-stats";
+import { AttemptHistory } from "./attempt-history";
 
 interface RunRowProps {
   repo: string;
@@ -16,6 +16,9 @@ interface RunRowProps {
   statusElement?: React.ReactNode;
   showRepo?: boolean;
   showBranch?: boolean;
+  showStats?: boolean;
+  showStatus?: boolean;
+  attemptStatuses?: string[];
 }
 
 const formatDate = (dateStr: string | null) => {
@@ -71,6 +74,9 @@ export const RunRow: React.FC<RunRowProps> = ({
   statusElement,
   showRepo = true,
   showBranch = true,
+  showStats = true,
+  showStatus = true,
+  attemptStatuses,
 }) => {
   const showContext = showRepo || showBranch;
 
@@ -101,25 +107,39 @@ export const RunRow: React.FC<RunRowProps> = ({
         </TableCell>
       )}
       <TableCell className="text-xs">{formatDate(startTime)}</TableCell>
+      {attemptStatuses && (
+        <TableCell>
+          <AttemptHistory 
+            attempts={attemptStatuses.map(s => ({ status: s }))} 
+            showEmptySlots={false} 
+            size="sm" 
+          />
+        </TableCell>
+      )}
       
-      <TableCell className="text-right">
-        <RunStats
-          expected={expected}
-          skipped={skipped}
-          flaky={flaky}
-          unexpected={unexpected}
-        />
-      </TableCell>
-      <TableCell className="text-right">
-        {statusElement || (
-          <RunStatusBadge
+      
+      {showStats && (
+        <TableCell className="text-right">
+          <RunStats
             expected={expected}
             skipped={skipped}
             flaky={flaky}
             unexpected={unexpected}
           />
-        )}
-      </TableCell>
+        </TableCell>
+      )}
+      {showStatus && (
+        <TableCell className="text-right">
+          {statusElement || (
+            <RunStatusBadge
+              expected={expected}
+              skipped={skipped}
+              flaky={flaky}
+              unexpected={unexpected}
+            />
+          )}
+        </TableCell>
+      )}
     </TableRow>
   );
 };
