@@ -27,7 +27,7 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
       <div className="space-y-1">
         <div><b>Repository:</b> {run.repo}/{run.branch}@{run.commit_hash}</div>
         <div><b>Commit:</b> <span title={run.commit_href ?? ""} className="font-mono">{run.commit_hash}</span></div>
-        <div><b>PR User:</b> {run.pr_user}</div>
+        {run.pr_user ? <div><b>User:</b> {run.pr_user}</div> : null}
         <div><b>Start:</b> {run.start_time || "-"}</div>
         <div className="flex gap-4 border-t border-black pt-2 mt-2">
           <div className="flex items-center gap-1"><StatusIcon status="passed" /> <span>{run.expected_count}</span></div>

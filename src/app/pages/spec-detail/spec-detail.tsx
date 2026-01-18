@@ -2,8 +2,7 @@ import { getTestData, getTestHistory } from "./actions";
 import { Histogram } from "@/app/components/histogram";
 import { StatusIcon } from "../../components/status-icon";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "@/app/components/table";
-import { formatDuration } from "@/app/shared/format";
-
+import { RunRow } from "@/app/components/run-row";
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "-";
@@ -69,45 +68,41 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
       <div className="space-y-2">
         <h2 className="text-lg font-bold px-2">Run History</h2>
         <TableContainer>
-          <Table>
-            <TableHeader>
-              <TableHeadCell>Start Time</TableHeadCell>
-              <TableHeadCell>Context (Repo@Branch)</TableHeadCell>
-              <TableHeadCell>Status</TableHeadCell>
-              <TableHeadCell className="text-right">Actions</TableHeadCell>
-            </TableHeader>
-            <TableBody>
-              {history.map((run) => (
-                <TableRow key={run.run_id}>
-                  <TableCell className="text-gray-600 truncate max-w-[150px]" title={formatDate(run.start_time)}>
-                    {formatDate(run.start_time)}
-                  </TableCell>
-                  <TableCell className="text-gray-500 italic text-xs truncate max-w-[200px]" title={`${run.owner}/${run.repo}@${run.branch}`}>
-                    {run.owner}/{run.repo}
-                    <div className="text-[10px] text-gray-400 not-italic">@{run.branch}</div>
-                  </TableCell>
-                  <TableCell>
-                    <StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <a 
-                      href={`/runs/${run.run_id}`} 
-                      className="text-black underline hover:no-underline text-xs"
-                    >
-                      View Run Details →
-                    </a>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {history.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-gray-500 italic">
-                    No run history found for this spec.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+        <Table>
+          <TableHeader>
+            <TableHeadCell>Run ID</TableHeadCell>
+            <TableHeadCell>Commit</TableHeadCell>
+            <TableHeadCell>User</TableHeadCell>
+            <TableHeadCell>Start Time</TableHeadCell>
+            <TableHeadCell>Test Status</TableHeadCell>
+            <TableHeadCell className="text-right">Run Results</TableHeadCell>
+          </TableHeader>
+          <TableBody>
+            {history.map((run) => (
+              <RunRow
+                key={run.run_id}
+                id={run.run_id}
+                repo={run.owner ?? ""}
+                branch={run.repo ?? ""}
+                commit={run.branch ?? ""}
+                user={run.pr_user ?? ""}
+                startTime={run.start_time}
+                expected={run.expected_count}
+                skipped={run.skipped_count}
+                flaky={run.flaky_count}
+                unexpected={run.unexpected_count}
+                statusElement={<StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />}
+              />
+            ))}
+            {history.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center text-gray-500 italic">
+                  No run history found for this spec.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
         </TableContainer>
       </div>
     </div>

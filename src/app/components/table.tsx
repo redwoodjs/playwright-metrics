@@ -33,13 +33,13 @@ export const TableRow = ({ children, className = "" }: { children: React.ReactNo
 );
 
 export const TableCell = ({ children, className = "", title, colSpan }: { children: React.ReactNode; className?: string; title?: string; colSpan?: number }) => (
-  <td className={`px-3 py-2 ${className}`} title={title} colSpan={colSpan}>
+  <td className={`px-1 py-2 ${className}`} title={title} colSpan={colSpan}>
     {children}
   </td>
 );
 
 export const TableHeadCell = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <th className={`px-3 py-2 ${className}`}>
+  <th className={`px-1 py-2 ${className}`}>
     {children}
   </th>
 );

@@ -17,6 +17,11 @@ export type TestHistoryRow = {
   status: string | null;
   duration_ms: number;
   was_flaky: boolean;
+  expected_count: number;
+  skipped_count: number;
+  flaky_count: number;
+  unexpected_count: number;
+  pr_user: string | null;
 };
 
 export async function getTestData(testId: string): Promise<TestMetadata | null> {
@@ -45,6 +50,11 @@ export async function getTestHistory(
       "tr.branch as repo",
       "tr.commit_hash as branch",
       "trt.status as final_status",
+      "tr.expected_count",
+      "tr.skipped_count",
+      "tr.flaky_count",
+      "tr.unexpected_count",
+      "tr.pr_user",
     ])
     .where("trt.test_id", "=", testId)
     .orderBy("tr.start_time", "desc")
@@ -88,6 +98,11 @@ export async function getTestHistory(
       status: r.final_status,
       duration_ms: metrics?.duration ?? 0,
       was_flaky: Boolean(metrics?.hadPass && metrics?.hadFail),
+      expected_count: r.expected_count,
+      skipped_count: r.skipped_count,
+      flaky_count: r.flaky_count,
+      unexpected_count: r.unexpected_count,
+      pr_user: r.pr_user,
     };
   });
 }
