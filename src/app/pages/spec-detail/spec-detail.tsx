@@ -2,8 +2,7 @@ import { getTestData, getTestHistory } from "./actions";
 import { AttemptHistory } from "@/app/components/attempt-history";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "@/app/components/table";
 import { RunRow } from "@/app/components/run-row";
-
-
+import { Breadcrumb, type BreadcrumbItem } from "@/app/components/breadcrumb";
 
 export const TestDetail = async ({ params }: { params: { specId: string } }) => {
   const specId = params.specId;
@@ -22,22 +21,17 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
     );
   }
 
-  // Prepare data for history (most recent results)
-  const recentAttempts = history.slice(0, 50).reverse().map(run => ({
-    status: run.was_flaky ? "flaky" : (run.status ?? "unknown"),
-    run_id: run.run_id
-  })); // Oldest to newest
+  const breadcrumbItems: BreadcrumbItem[] = [
+    { label: "Leaderboard", href: "/" },
+    { label: "Test Detail", active: true },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-sm">
-         <a href="/" className="underline text-gray-500 hover:text-black">Leaderboard</a>
-         <span className="text-gray-400">/</span>
-         <span className="text-gray-900 font-medium">Test Detail</span>
-      </div>
+      <Breadcrumb items={breadcrumbItems} />
 
       {/* Header */}
-      <div className="border border-black p-4 bg-white">
+      <div className="border border-black p-4 bg-white shadow-sm">
         <h1 className="text-2xl font-bold truncate" title={test.title || ""}>
           {test.title || "Untitled Test"}
         </h1>
@@ -48,11 +42,8 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
         <div className="text-xs text-gray-400 mt-2 font-mono">ID: {test.id}</div>
       </div>
 
-   
-
       <div className="space-y-2">
-       
-        <h2 className="text-lg font-bold">Run History</h2>
+        <h2 className="text-lg font-bold px-1">Run History</h2>
       
         <TableContainer>
         <Table>
@@ -83,7 +74,7 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
             ))}
             {history.length === 0 && (
               <TableRow>
-                <TableCell colSpan={3} className="py-8 text-center text-gray-500 italic">
+                <TableCell colSpan={4} className="py-8 text-center text-gray-500 italic">
                   No run history found for this test.
                 </TableCell>
               </TableRow>

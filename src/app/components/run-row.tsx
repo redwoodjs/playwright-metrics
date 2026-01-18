@@ -2,6 +2,8 @@ import { TableRow, TableCell } from "./table";
 import { RunStats } from "./run-stats";
 import { AttemptHistory } from "./attempt-history";
 import { StatusIcon } from "./status-icon";
+import { formatDate } from "../shared/format";
+import { CommitLink } from "./commit-link";
 
 interface RunRowProps {
   repo: string;
@@ -21,16 +23,6 @@ interface RunRowProps {
   showStatus?: boolean;
   attemptStatuses?: string[];
 }
-
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return "-";
-  try {
-    return new Date(dateStr).toLocaleString();
-  } catch (e) {
-    return dateStr;
-  }
-};
-
 
 export const RunRow: React.FC<RunRowProps> = ({
   repo,
@@ -60,22 +52,14 @@ export const RunRow: React.FC<RunRowProps> = ({
 
   const { status, label } = getStatus();
   const showContext = showRepo || showBranch;
+  
+  // Split repo into org and repo name for the link
+  const [org, repoName] = repo.split('/');
 
   return (
     <TableRow>
       <TableCell className="text-xs">
-        <div className="flex flex-col">
-          <a className="underline font-mono text-[10px]" href={`/runs/${commit}`}>
-            {commit.slice(0, 7)}
-          </a>
-          <div className="flex items-center gap-2">
-            {user && (
-              <div className="text-[10px] text-gray-400">
-                by {user}
-              </div>
-            )}
-          </div>
-        </div>
+        <CommitLink org={org} repo={repoName} branch={branch} commit={commit} user={user} />
       </TableCell>
       {showContext && (
         <TableCell
@@ -97,7 +81,6 @@ export const RunRow: React.FC<RunRowProps> = ({
           />
         </TableCell>
       )}
-      
       
       {showStats && (
         <TableCell className="text-right">

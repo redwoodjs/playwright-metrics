@@ -9,3 +9,17 @@ export function formatDuration(ms: number | null): string {
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}m ${remainingSeconds}s`;
 }
+
+export const formatDate = (dateStr: string | null) => {
+  if (!dateStr) return "-";
+  try {
+    return new Date(dateStr).toLocaleString();
+  } catch (e) {
+    return dateStr;
+  }
+};
+
+export const formatCommit = (hash: string) => {
+  if (!hash) return "-";
+  return hash.slice(0, 7);
+};

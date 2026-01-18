@@ -36,10 +36,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between ">
-        <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
-          Results for test run {filter ? `(${filter})` : ""}
-        </h2>
+      
         <div className="flex items-center justify-end gap-x-4 tabular-nums text-xs min-w-max">
           {[
             { label: "passed", count: runStats.expected },
@@ -57,7 +54,7 @@ export const RunTestList: React.FC<RunTestListProps> = ({ tests, runStats }) => 
               <StatusIcon status={item.label} result={item.label + ' ' +item.count} />
             </div>
           ))}
-        </div>
+      
       </div>
 
       <TableContainer>

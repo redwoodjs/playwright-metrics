@@ -7,8 +7,11 @@ export const Layout: React.FC<any> = ({ children }) => {
             Playwright Metrics
           </a>
           <nav className="flex items-center gap-4 text-sm">
+            <a href="/" className="underline hover:no-underline">
+              Leaderboard
+            </a>
             <a href="/runs" className="underline hover:no-underline">
-              Runs
+              Test runs
             </a>
             
           </nav>

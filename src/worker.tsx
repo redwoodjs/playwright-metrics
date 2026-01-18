@@ -29,11 +29,10 @@ export default defineApp([
     layout(Layout, [
       route("/", Leaderboard),
       route("/runs", Runs),
-      route("/runs/:commitHash", RunDetail),
       route("/runs/:org/:repo", Runs),
-      route("/runs/:org/:repo/test-summary", RepoSpecs),
-      route("/runs/:org/:repo/:branch", Runs),
-      route("/runs/:org/:repo/:branch/test-summary", RepoSpecs),
+      route("/runs/:org/:repo/*", RunDetail), // RunDetail handles paths with commits
+      route("/summary/:org/:repo", RepoSpecs),
+      route("/summary/:org/:repo/*", RepoSpecs), // RepoSpecs handles branch or branch/commit
       route("/test-summary/:specId", TestDetail),
       ...adminPageRoutes,
     ]),

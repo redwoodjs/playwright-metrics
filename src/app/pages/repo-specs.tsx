@@ -1,6 +1,9 @@
 import { listRepoSpecs } from "./actions";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 import { AttemptHistory } from "../components/attempt-history";
+import { Breadcrumb, type BreadcrumbItem } from "../components/breadcrumb";
+import { requestInfo } from "rwsdk/worker";
+import { link } from "../shared/links";
 
 const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean }) => {
   if (flaky) {
@@ -42,30 +45,57 @@ const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean 
   return <span className="text-xs text-gray-400 uppercase tracking-tight">{status || "unknown"}</span>;
 };
 
-export const RepoSpecs = async ({ params }: { params: { org: string; repo: string; branch?: string } }) => {
-  const repoName = `${params.org}/${params.repo}`;
-  const branchName = params.branch;
-  const rows = await listRepoSpecs(repoName, branchName);
+export const RepoSpecs = async ({ params }: { params: { org: string; repo: string; $0?: string } }) => {
+  const org = params.org;
+  const repo = params.repo;
+  
+  // The catch-all $0 captures everything after /summary/:org/:repo/
+  // It could be just a branch, or branch/commit
+  const fullPath = params.$0 || '';
+  
+  let branch = '';
+  let commit: string | undefined;
+  
+  if (fullPath) {
+    const segments = fullPath.split('/');
+    const lastSegment = segments[segments.length - 1];
+    
+    // If the last segment looks like a commit hash (7+ hex chars), treat it as commit
+    if (lastSegment && lastSegment.length >= 7 && /^[a-f0-9]+$/i.test(lastSegment)) {
+      commit = lastSegment;
+      branch = segments.slice(0, -1).join('/');
+    } else {
+      // Otherwise, the whole path is the branch
+      branch = fullPath;
+    }
+  }
+  
+  const repoName = `${org}/${repo}`;
+  
+  const rows = await listRepoSpecs(repoName, branch || undefined);
+
+  const breadcrumbItems: BreadcrumbItem[] = [
+    { label: "Test runs", href: "/runs" },
+    { label: repoName, href: link("/runs/:org/:repo", { org, repo }) },
+  ];
+  
+  if (branch) {
+    breadcrumbItems.push({ label: branch, href: link("/runs/:org/:repo/*", { org, repo, $0: branch } as any) });
+  }
+  
+  if (commit) {
+    breadcrumbItems.push({ label: `Run ${commit.substring(0, 7)}`, active: true });
+  } else {
+    breadcrumbItems.push({ label: "Test Summary", active: true });
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Test Summary</h1>
-          <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-            <a href="/runs" className="hover:underline">All Runs</a>
-            <span>/</span>
-            <a href={`/runs/${repoName}`} className="hover:underline">{repoName}</a>
-            {branchName && (
-              <>
-                <span>/</span>
-                <a href={`/runs/${repoName}/${branchName}`} className="hover:underline">{branchName}</a>
-              </>
-            )}
-            <span>/</span>
-            <span className="font-bold text-black">Test Summary</span>
-          </div>
-        </div>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold">
+          Test Summary{commit ? ` for ${commit.substring(0, 7)}` : branch ? ` for ${branch}` : ` for ${repoName}`}
+        </h1>
+        <Breadcrumb items={breadcrumbItems} />
       </div>
 
       <TableContainer>
