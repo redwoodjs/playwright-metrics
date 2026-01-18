@@ -1,6 +1,8 @@
 import { getRun, listRunTests, listRunFlakies, listRunNewFlakies } from "./actions";
 import { StatusIcon } from "../components/status-icon";
 import { Histogram } from "../components/histogram";
+import { formatDuration } from "../shared/format";
+import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 
 export const RunDetail = async ({ params }: { params: { runId: string } }) => {
   const runId = params.runId;
@@ -27,7 +29,6 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
         <div><b>Commit:</b> <span title={run.commit_href ?? ""} className="font-mono">{run.commit_hash}</span></div>
         <div><b>PR User:</b> {run.pr_user}</div>
         <div><b>Start:</b> {run.start_time || "-"}</div>
-        <div><b>Duration (ms):</b> {run.duration_ms}</div>
         <div className="flex gap-4 border-t border-black pt-2 mt-2">
           <div className="flex items-center gap-1"><StatusIcon status="passed" /> <span>{run.expected_count}</span></div>
           <div className="flex items-center gap-1"><StatusIcon status="failed" /> <span>{run.unexpected_count}</span></div>
@@ -62,45 +63,32 @@ export const RunDetail = async ({ params }: { params: { runId: string } }) => {
             </ul>
           </div>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full table-auto border-collapse border border-black text-sm">
-            <colgroup>
-              <col className="w-[40%]" />
-              <col className="w-[28%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[12%]" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="border border-black p-2 text-left">Title</th>
-                <th className="border border-black p-2 text-left">File</th>
-                <th className="border border-black p-2 text-left">Project</th>
-                <th className="border border-black p-2 text-left">Attempts</th>
-                <th className="border border-black p-2 text-left">Final Result</th>
-              </tr>
-            </thead>
-            <tbody>
+        <TableContainer>
+          <Table>
+            <TableHeader>
+              <TableHeadCell>Title</TableHeadCell>
+              <TableHeadCell>File</TableHeadCell>
+              <TableHeadCell>Attempts</TableHeadCell>
+              <TableHeadCell>Final Result</TableHeadCell>
+            </TableHeader>
+            <TableBody>
               {tests.map((t) => (
-                <tr key={t.id}>
-                  <td className="border border-black p-2 align-top">{t.title}</td>
-                  <td className="border border-black p-2 align-top break-all">
+                <TableRow key={t.id}>
+                  <TableCell>{t.title}</TableCell>
+                  <TableCell className="break-all">
                     {t.file}:{t.line}
-                  </td>
-                  <td className="border border-black p-2 align-top italic text-gray-500">
-                    {t.project_name}
-                  </td>
-                  <td className="border border-black p-2 align-top">
+                  </TableCell>
+                  <TableCell>
                     <Histogram results={t.attempt_statuses} />
-                  </td>
-                  <td className="border border-black p-2 align-top">
+                  </TableCell>
+                  <TableCell>
                     <StatusIcon status={t.final_status ?? ""} was_flaky={t.was_flaky} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
       </div>
     </div>
   );

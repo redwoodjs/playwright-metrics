@@ -4,7 +4,7 @@ export const Layout: React.FC<any> = ({ children }) => {
       <header className="border-b border-black">
         <div className="mx-auto max-w-5xl px-3 py-3 flex items-center justify-between">
           <a href="/" className="font-bold underline-offset-2">
-            Play Report
+            Playwright Metrics
           </a>
           <nav className="flex items-center gap-4 text-sm">
             <a href="/runs" className="underline hover:no-underline">

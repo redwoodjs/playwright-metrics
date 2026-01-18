@@ -1,12 +1,9 @@
 import { getTestData, getTestHistory } from "./actions";
 import { Histogram } from "@/app/components/histogram";
 import { StatusIcon } from "../../components/status-icon";
+import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "@/app/components/table";
+import { formatDuration } from "@/app/shared/format";
 
-function formatDuration(ms: number | null): string {
-  if (ms === null || ms === 0) return "-";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "-";
@@ -71,55 +68,47 @@ export const TestDetail = async ({ params }: { params: { specId: string } }) => 
       {/* Run History */}
       <div className="space-y-2">
         <h2 className="text-lg font-bold px-2">Run History</h2>
-        <div className="border border-black overflow-hidden bg-white shadow-sm">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-100 border-b border-black text-xs font-bold uppercase">
-                <th className="px-3 py-2">Start Time</th>
-                <th className="px-3 py-2">Context (Repo@Branch)</th>
-                <th className="px-3 py-2">Project</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Duration</th>
-                <th className="px-3 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
+        <TableContainer>
+          <Table>
+            <TableHeader>
+              <TableHeadCell>Start Time</TableHeadCell>
+              <TableHeadCell>Context (Repo@Branch)</TableHeadCell>
+              <TableHeadCell>Status</TableHeadCell>
+              <TableHeadCell className="text-right">Actions</TableHeadCell>
+            </TableHeader>
+            <TableBody>
               {history.map((run) => (
-                <tr key={run.run_id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-600 truncate max-w-[150px]" title={formatDate(run.start_time)}>
+                <TableRow key={run.run_id}>
+                  <TableCell className="text-gray-600 truncate max-w-[150px]" title={formatDate(run.start_time)}>
                     {formatDate(run.start_time)}
-                  </td>
-                  <td className="px-3 py-2 text-gray-500 italic text-xs truncate max-w-[200px]" title={`${run.owner}/${run.repo}@${run.branch}`}>
+                  </TableCell>
+                  <TableCell className="text-gray-500 italic text-xs truncate max-w-[200px]" title={`${run.owner}/${run.repo}@${run.branch}`}>
                     {run.owner}/{run.repo}
                     <div className="text-[10px] text-gray-400 not-italic">@{run.branch}</div>
-                  </td>
-                  <td className="px-3 py-2 text-gray-500 text-xs italic">
-                    {run.project_name}
-                  </td>
-                  <td className="px-3 py-2">
+                  </TableCell>
+                  <TableCell>
                     <StatusIcon status={run.status ?? ""} was_flaky={run.was_flaky} />
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{formatDuration(run.duration_ms)}</td>
-                  <td className="px-3 py-2 text-right">
+                  </TableCell>
+                  <TableCell className="text-right">
                     <a 
                       href={`/runs/${run.run_id}`} 
                       className="text-black underline hover:no-underline text-xs"
                     >
                       View Run Details →
                     </a>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
               {history.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-3 py-8 text-center text-gray-500 italic">
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-gray-500 italic">
                     No run history found for this spec.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
       </div>
     </div>
   );

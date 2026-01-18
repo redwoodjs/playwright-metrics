@@ -1,4 +1,5 @@
 import { getSuiteHealth, getSuiteTrends, listFlakiestTests, listRegressions } from "./actions";
+import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 
 export const Health = async () => {
   const [trends, health30, flakiest, regressions] = await Promise.all([
@@ -37,65 +38,61 @@ export const Health = async () => {
 
       <div className="space-y-2">
         <h2 className="text-xl font-bold">Top contributors</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full table-auto border-collapse border border-black text-sm">
-            <thead>
-              <tr>
-                <th className="border border-black p-2 text-left">Spec</th>
-                <th className="border border-black p-2 text-left">File</th>
-                <th className="border border-black p-2 text-right">Flaky Rate</th>
-                <th className="border border-black p-2 text-right">Flaky Runs</th>
-                <th className="border border-black p-2 text-right">Total Runs</th>
-                <th className="border border-black p-2 text-right">Retries</th>
-              </tr>
-            </thead>
-            <tbody>
+        <TableContainer>
+          <Table>
+            <TableHeader>
+              <TableHeadCell>Spec</TableHeadCell>
+              <TableHeadCell>File</TableHeadCell>
+              <TableHeadCell className="text-right">Flaky Rate</TableHeadCell>
+              <TableHeadCell className="text-right">Flaky Runs</TableHeadCell>
+              <TableHeadCell className="text-right">Total Runs</TableHeadCell>
+              <TableHeadCell className="text-right">Retries</TableHeadCell>
+            </TableHeader>
+            <TableBody>
               {flakiest.map((r) => (
-                <tr key={r.test_id}>
-                  <td className="border border-black p-2 align-top">{r.title}</td>
-                  <td className="border border-black p-2 align-top break-all">{r.file}</td>
-                  <td className="border border-black p-2 text-right align-top">{(r.flaky_rate * 100).toFixed(0)}%</td>
-                  <td className="border border-black p-2 text-right align-top">{r.flaky_runs}</td>
-                  <td className="border border-black p-2 text-right align-top">{r.total_runs}</td>
-                  <td className="border border-black p-2 text-right align-top">{r.retry_count_total ?? 0}</td>
-                </tr>
+                <TableRow key={r.test_id}>
+                  <TableCell>{r.title}</TableCell>
+                  <TableCell className="break-all">{r.file}</TableCell>
+                  <TableCell className="text-right">{(r.flaky_rate * 100).toFixed(0)}%</TableCell>
+                  <TableCell className="text-right">{r.flaky_runs}</TableCell>
+                  <TableCell className="text-right">{r.total_runs}</TableCell>
+                  <TableCell className="text-right">{r.retry_count_total ?? 0}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
       </div>
 
       {regressions.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-xl font-bold">Regressions</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full table-auto border-collapse border border-black text-sm">
-              <thead>
-                <tr>
-                  <th className="border border-black p-2 text-left">Spec</th>
-                  <th className="border border-black p-2 text-left">File</th>
-                  <th className="border border-black p-2 text-right">Current Flaky</th>
-                  <th className="border border-black p-2 text-right">Previous Flaky</th>
-                  <th className="border border-black p-2 text-right">Factor</th>
-                  <th className="border border-black p-2 text-right">Runs (current)</th>
-                </tr>
-              </thead>
-              <tbody>
+          <TableContainer>
+            <Table>
+              <TableHeader>
+                <TableHeadCell>Spec</TableHeadCell>
+                <TableHeadCell>File</TableHeadCell>
+                <TableHeadCell className="text-right">Current Flaky</TableHeadCell>
+                <TableHeadCell className="text-right">Previous Flaky</TableHeadCell>
+                <TableHeadCell className="text-right">Factor</TableHeadCell>
+                <TableHeadCell className="text-right">Runs (current)</TableHeadCell>
+              </TableHeader>
+              <TableBody>
                 {regressions.map((r) => (
-                  <tr key={r.test_id}>
-                    <td className="border border-black p-2 align-top">{r.title}</td>
-                    <td className="border border-black p-2 align-top break-all">
+                  <TableRow key={r.test_id}>
+                    <TableCell>{r.title}</TableCell>
+                    <TableCell className="break-all">
                       {r.file}:{r.line}
-                    </td>
-                    <td className="border border-black p-2 text-right align-top">{(r.current_rate * 100).toFixed(0)}%</td>
-                    <td className="border border-black p-2 text-right align-top">{(r.previous_rate * 100).toFixed(0)}%</td>
-                    <td className="border border-black p-2 text-right align-top">{r.factor === Infinity ? "∞" : r.factor.toFixed(2)}</td>
-                    <td className="border border-black p-2 text-right align-top">{r.total_runs}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="text-right">{(r.current_rate * 100).toFixed(0)}%</TableCell>
+                    <TableCell className="text-right">{(r.previous_rate * 100).toFixed(0)}%</TableCell>
+                    <TableCell className="text-right">{r.factor === Infinity ? "∞" : r.factor.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">{r.total_runs}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableContainer>
         </div>
       )}
     </div>

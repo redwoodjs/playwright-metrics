@@ -1,4 +1,5 @@
 import { listFlakiestTests } from "./actions";
+import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return "-";
@@ -14,54 +15,42 @@ export const Flakiest = async () => {
   return (
     <div className="space-y-3">
       <h1 className="text-2xl font-bold">Flakiest specs</h1>
-      <div className="overflow-x-auto">
-        <table className="w-full table-auto border-collapse border border-black text-sm">
-          <colgroup>
-            <col className="w-[28%]" />
-            <col className="w-[24%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[12%]" />
-            <col className="w-[8%]" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th className="border border-black p-2 text-left">Spec</th>
-              <th className="border border-black p-2 text-left">File</th>
-              <th className="border border-black p-2 text-right">Flaky Rate</th>
-              <th className="border border-black p-2 text-right">Instability Rate</th>
-              <th className="border border-black p-2 text-right">Flaky Runs</th>
-              <th className="border border-black p-2 text-right">Total Runs</th>
-              <th className="border border-black p-2 text-right">Retries</th>
-              <th className="border border-black p-2 text-right">Retry Time (ms)</th>
-              <th className="border border-black p-2 text-left">Last Flaky</th>
-              <th className="border border-black p-2 text-left">Bucket</th>
-            </tr>
-          </thead>
-          <tbody>
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableHeadCell>Spec</TableHeadCell>
+            <TableHeadCell>File</TableHeadCell>
+            <TableHeadCell className="text-right">Flaky Rate</TableHeadCell>
+            <TableHeadCell className="text-right">Instability Rate</TableHeadCell>
+            <TableHeadCell className="text-right">Flaky Runs</TableHeadCell>
+            <TableHeadCell className="text-right">Total Runs</TableHeadCell>
+            <TableHeadCell className="text-right">Retries</TableHeadCell>
+            <TableHeadCell className="text-right">Retry Time (ms)</TableHeadCell>
+            <TableHeadCell>Last Flaky</TableHeadCell>
+            <TableHeadCell>Bucket</TableHeadCell>
+          </TableHeader>
+          <TableBody>
             {rows.map((r) => (
-              <tr key={r.test_id}>
-                <td className="border border-black p-2 align-top">
+              <TableRow key={r.test_id}>
+                <TableCell>
                   <a href={`/specs/${r.test_id}`} className="hover:underline text-black font-medium">
                     {r.title}
                   </a>
-                </td>
-                <td className="border border-black p-2 align-top break-all">{r.file}</td>
-                <td className="border border-black p-2 text-right align-top">{(r.flaky_rate * 100).toFixed(0)}%</td>
-                <td className="border border-black p-2 text-right align-top">{(r.fail_rate * 100).toFixed(0)}%</td>
-                <td className="border border-black p-2 text-right align-top">{r.flaky_runs}</td>
-                <td className="border border-black p-2 text-right align-top">{r.total_runs}</td>
-                <td className="border border-black p-2 text-right align-top">{r.retry_count_total ?? 0}</td>
-                <td className="border border-black p-2 text-right align-top">{r.retry_duration_total_ms ?? 0}</td>
-                <td className="border border-black p-2 align-top">{formatDate(r.last_flaky_start_time ?? null)}</td>
-                <td className="border border-black p-2 align-top">{r.bucket}</td>
-              </tr>
+                </TableCell>
+                <TableCell className="break-all">{r.file}</TableCell>
+                <TableCell className="text-right">{(r.flaky_rate * 100).toFixed(0)}%</TableCell>
+                <TableCell className="text-right">{(r.fail_rate * 100).toFixed(0)}%</TableCell>
+                <TableCell className="text-right">{r.flaky_runs}</TableCell>
+                <TableCell className="text-right">{r.total_runs}</TableCell>
+                <TableCell className="text-right">{r.retry_count_total ?? 0}</TableCell>
+                <TableCell className="text-right">{r.retry_duration_total_ms ?? 0}</TableCell>
+                <TableCell>{formatDate(r.last_flaky_start_time ?? null)}</TableCell>
+                <TableCell>{r.bucket}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </TableContainer>
     </div>
   );
 };
