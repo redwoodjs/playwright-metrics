@@ -58,7 +58,7 @@ export const Leaderboard = async () => {
             className="border border-gray-300 rounded-lg p-4 bg-white flex items-center gap-4"
           >
             {/* Test info */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-[2] min-w-0">
               <div className="font-bold text-base mb-1">
                 <a href={`/test-summary/${row.test_id}`} className="hover:underline">
                   {row.title || "Untitled test"}
@@ -68,9 +68,9 @@ export const Leaderboard = async () => {
             </div>
 
             {/* Metrics */}
-            <div className="flex-1 flex items-center justify-end gap-6">
+            <div className="flex-1 flex items-center justify-end gap-3 px-2">
               {/* Rate */}
-              <div className="text-right w-16">
+              <div className="text-right w-12">
                 <div className="text-xs text-gray-500">RATE</div>
                 <div className="text-lg font-bold text-red-600">
                   {(row.flaky_rate * 100).toFixed(0)}%
@@ -78,7 +78,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Flaky/Total */}
-              <div className="text-right w-32">
+              <div className="text-right w-24">
                 <div className="text-xs text-gray-500 uppercase">Flaky / Total</div>
                 <div className="text-lg font-bold">
                   {row.flaky_runs} / {row.total_runs}
@@ -86,7 +86,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Waste */}
-              <div className="text-right w-28">
+              <div className="text-right w-20">
                 <div className="text-xs text-gray-500">WASTE</div>
                 <div className="text-lg font-bold">
                   {formatWasteTime(row.waste_time_ms)}
@@ -94,7 +94,7 @@ export const Leaderboard = async () => {
               </div>
 
               {/* Attempt History */}
-              <div className="flex items-center justify-end w-[150px]">
+              <div className="flex items-center justify-end w-[130px]">
                 <AttemptHistory 
                   attempts={row.recent_results.map(status => ({ status }))} 
                   limit={12} 
