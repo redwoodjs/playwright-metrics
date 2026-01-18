@@ -21,6 +21,9 @@ export type R2ObjectInfo = {
 export type BranchGroup = {
   repo: string;
   branch: string;
+  prTitle?: string;
+  prHref?: string;
+  prUser?: string;
   objects: R2ObjectInfo[];
 };
 
@@ -29,17 +32,41 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
   let cursor: string | undefined;
 
   try {
+    console.log("[listR2Objects] Checking env and R2 binding...");
+    if (!env) console.warn("[listR2Objects] env is UNDEFINED");
+    if (env && !env.R2) console.warn("[listR2Objects] env.R2 is UNDEFINED");
+    if (env && env.R2) console.log("[listR2Objects] R2 keys:", Object.keys(env.R2));
+
     // List all objects from R2
     while (true) {
-      const list = await env.R2.list({
-        prefix: "runs/",
-        cursor,
-        include: ["customMetadata" as any],
-      } as any);
+      let list: any;
+      try {
+        // Try with customMetadata first
+        list = await env.R2.list({
+          prefix: "runs/",
+          cursor,
+          include: ["customMetadata"],
+        } as any);
+      } catch (err: any) {
+        console.warn("[listR2Objects] List with metadata failed, retrying without it:", err.message);
+        try {
+          list = await env.R2.list({
+            prefix: "runs/",
+            cursor,
+          });
+        } catch (innerErr: any) {
+          console.error("[listR2Objects] Fatal R2 list error:", innerErr.message);
+          throw innerErr;
+        }
+      }
+
+      if (!list || !list.objects) {
+        console.warn("[listR2Objects] R2 list returned empty result unexpectedly");
+        break;
+      }
 
       for (const obj of list.objects) {
         // Parse key: runs/${repo}/${branch}/${commit}/${runId}.json
-        // Note: repo can contain slashes (e.g. goprzm/przm)
         const parts = obj.key.split("/");
 
         if (parts[0] !== "runs" || parts.length < 5) {
@@ -50,10 +77,8 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
         const runId = filename.replace(".json", "");
         const commit = parts[parts.length - 2];
         const branch = parts[parts.length - 3];
-        // Everything between "runs" and branch is the repo
         const repo = parts.slice(1, parts.length - 3).join("/");
 
-        // Metadata is now included in the list result
         const customMetadata = (obj as any).customMetadata ?? {};
         const prHref = customMetadata.prHref;
         const prTitle = customMetadata.prTitle;
@@ -80,23 +105,27 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
     throw error;
   }
 
-  // Group by Repo and Branch
-  const branchMap = new Map<string, BranchGroup>();
+  // Group by (Repo + Branch + PR)
+  const groupMap = new Map<string, BranchGroup>();
 
   for (const obj of objects) {
-    const branchKey = `${obj.repo}/${obj.branch}`;
-    const group = branchMap.get(branchKey) || {
+    // Group by PR if it exists, otherwise by branch
+    const groupKey = obj.prHref || `${obj.repo}/${obj.branch}`;
+    const group = groupMap.get(groupKey) || {
       repo: obj.repo,
       branch: obj.branch,
+      prTitle: obj.prTitle,
+      prHref: obj.prHref,
+      prUser: obj.prUser,
       objects: [],
     };
 
     group.objects.push(obj);
-    branchMap.set(branchKey, group);
+    groupMap.set(groupKey, group);
   }
 
   // Sort objects within each group by uploaded DESC
-  for (const group of branchMap.values()) {
+  for (const group of groupMap.values()) {
     group.objects.sort((a, b) => {
       const aTime = a.uploaded ? new Date(a.uploaded).getTime() : 0;
       const bTime = b.uploaded ? new Date(b.uploaded).getTime() : 0;
@@ -105,7 +134,7 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
   }
 
   // Convert to array and sort by the newest object in each group DESC
-  const groups = Array.from(branchMap.values()).sort((a, b) => {
+  const groups = Array.from(groupMap.values()).sort((a, b) => {
     const aTime = a.objects[0]?.uploaded
       ? new Date(a.objects[0].uploaded).getTime()
       : 0;
@@ -115,10 +144,7 @@ export async function listR2Objects(): Promise<BranchGroup[]> {
 
     if (bTime !== aTime) return bTime - aTime;
 
-    // Fallback to name
-    const aKey = `${a.repo}/${a.branch}`;
-    const bKey = `${b.repo}/${b.branch}`;
-    return aKey.localeCompare(bKey);
+    return `${a.repo}/${a.branch}`.localeCompare(`${b.repo}/${b.branch}`);
   });
 
   return groups;
