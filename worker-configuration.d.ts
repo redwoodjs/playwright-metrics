@@ -9,6 +9,7 @@ declare namespace Cloudflare {
 		DATABASE: DurableObjectNamespace<import("./src/worker").Database>;
 		R2: R2Bucket;
 		ASSETS: Fetcher;
+		INGESTION_QUEUE: Queue;
 	}
 }
 interface Env extends Cloudflare.Env {}

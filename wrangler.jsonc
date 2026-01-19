@@ -19,8 +19,9 @@
 
   "r2_buckets": [
     {
-      "bucket_name": "playwright-metrics",
-      "binding": "R2"
+      "bucket_name": "play-report",
+      "binding": "R2",
+      "remote": true
     }
   ],
   "durable_objects": {
@@ -42,6 +43,21 @@
     "enabled": true
   },
 
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGESTION_QUEUE",
+        "queue": "ingestion-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "ingestion-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      }
+    ]
+  },
   // Environment variables
   "vars": {
     // Add your environment variables here

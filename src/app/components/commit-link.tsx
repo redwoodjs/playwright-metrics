@@ -14,7 +14,7 @@ interface CommitLinkProps {
 export const CommitLink: React.FC<CommitLinkProps> = ({ org, repo, branch, commit, user, className = "" }) => {
   return (
     <div className={`flex flex-col ${className}`}>
-      <a className="underline font-mono text-[10px]" href={link("/runs/:org/:repo/*/:commit", { org, repo, $0: branch, commit } as any)}>
+      <a className="underline font-mono text-[10px]" href={link("/runs/:org/:repo/*", { org, repo, $0: `${branch}/${commit}` } as any)}>
         {formatCommit(commit)}
       </a>
       {user && (

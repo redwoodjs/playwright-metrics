@@ -160,103 +160,67 @@ export async function reingestKeys(_prevState: any, formData: FormData) {
   }
 
   console.log(
-    `[Re-ingest] Starting re-ingestion of ${keys.length} files (deleteOldData: ${deleteOldData})...`
+    `[Re-ingest] Queueing re-ingestion of ${keys.length} files (deleteOldData: ${deleteOldData})...`
   );
 
-  let count = 0;
   const errors: string[] = [];
-  const cleanedRuns = new Set<string>();
+  const runIds = new Set<string>();
 
+  // 1. Extract runIds from keys for deletion
   for (const key of keys) {
+    const parts = key.split("/");
+    if (parts[0] !== "runs" || parts.length < 5) {
+      errors.push(`${key}: invalid key format`);
+      continue;
+    }
+    const filename = parts[parts.length - 1];
+    const runId = filename.replace(".json", "");
+    runIds.add(runId);
+  }
+
+  // 2. Delete old data if requested
+  if (deleteOldData && runIds.size > 0) {
+    const ids = Array.from(runIds);
+    console.log(`[Re-ingest] Deleting old data for ${ids.length} runs...`);
     try {
-      console.log(`[Re-ingest] Processing ${key}...`);
-
-      const r2Obj = await env.R2.get(key);
-      if (!r2Obj) {
-        console.log(`[Re-ingest] Skipping ${key}, could not fetch.`);
-        errors.push(`${key}: could not fetch`);
-        continue;
-      }
-
-      const reportJson = await r2Obj.json<any>();
-      const customMetadata = r2Obj.customMetadata ?? {};
-
-      // Parse key: runs/${repo}/${branch}/${commit}/${runId}.json
-      const parts = key.split("/");
-      if (parts[0] !== "runs" || parts.length < 5) {
-        errors.push(`${key}: invalid key format`);
-        continue;
-      }
-
-      const filename = parts[parts.length - 1];
-      const runId = filename.replace(".json", "");
-      const commit = parts[parts.length - 2];
-      const branch = parts[parts.length - 3];
-      const repo = parts.slice(1, parts.length - 3).join("/");
-
-      if (deleteOldData && !cleanedRuns.has(runId)) {
-        console.log(`[Re-ingest] Deleting old data for run ${runId}...`);
-        await db.deleteFrom("attempts").where("run_id", "=", runId).execute();
-        await db.deleteFrom("results").where("run_id", "=", runId).execute();
-        await db.deleteFrom("runs").where("id", "=", runId).execute();
-        cleanedRuns.add(runId);
-      }
-
-      const metadata: IngestionMetadata = {
-        runId,
-        repo,
-        branch,
-        commit,
-        prUser: customMetadata.prUser,
-        playwrightVersion:
-          customMetadata.playwrightVersion ||
-          reportJson.config?.playwrightVersion,
-        workers: customMetadata.workers
-          ? Number(customMetadata.workers)
-          : undefined,
-        shardCurrent: customMetadata.shardCurrent
-          ? Number(customMetadata.shardCurrent)
-          : undefined,
-        shardTotal: customMetadata.shardTotal
-          ? Number(customMetadata.shardTotal)
-          : undefined,
-        startTime: customMetadata.startTime || reportJson.stats?.startTime,
-        durationMs: customMetadata.durationMs
-          ? Number(customMetadata.durationMs)
-          : reportJson.stats?.duration,
-        expectedCount: customMetadata.expectedCount
-          ? Number(customMetadata.expectedCount)
-          : undefined,
-        skippedCount: customMetadata.skippedCount
-          ? Number(customMetadata.skippedCount)
-          : undefined,
-        flakyCount: customMetadata.flakyCount
-          ? Number(customMetadata.flakyCount)
-          : undefined,
-        unexpectedCount: customMetadata.unexpectedCount
-          ? Number(customMetadata.unexpectedCount)
-          : undefined,
-        commitHref: customMetadata.commitHref,
-        prHref: customMetadata.prHref,
-        prTitle: customMetadata.prTitle,
-        buildHref: customMetadata.buildHref,
-      };
-
-      await ingestRawReport(metadata, reportJson);
-      await computeRunMetrics(runId);
-      count++;
+      await db.deleteFrom("attempts").where("run_id", "in", ids).execute();
+      await db.deleteFrom("results").where("run_id", "in", ids).execute();
+      await db.deleteFrom("runs").where("id", "in", ids).execute();
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[Re-ingest] Error processing ${key}:`, errorMsg);
-      errors.push(`${key}: ${errorMsg}`);
+      console.error("[Re-ingest] Error deleting old data:", error);
+      errors.push(`Deletion failed: ${error}`);
     }
   }
 
-  console.log(`[Re-ingest] Finished re-ingesting ${count} runs.`);
+  // 3. Push to queue
+  if (keys.length > 0) {
+    try {
+      console.log(`[Re-ingest] Sending ${keys.length} items to queue...`);
+
+      // Using sendBatch is more efficient for many keys
+      const messages = keys.map((key) => ({
+        body: {
+          type: "ingest" as const,
+          r2ObjectKey: key,
+        },
+      }));
+
+      // Cloudflare Queue sendBatch limit is 100
+      for (let i = 0; i < messages.length; i += 100) {
+        const chunk = messages.slice(i, i + 100);
+        await env.INGESTION_QUEUE.sendBatch(chunk);
+      }
+    } catch (error) {
+      console.error("[Re-ingest] Error sending to queue:", error);
+      errors.push(`Queueing failed: ${error}`);
+    }
+  }
+
+  console.log(`[Re-ingest] Finished queueing ${keys.length} reports.`);
 
   return {
-    ok: true,
-    count,
+    ok: errors.length === 0,
+    count: keys.length,
     errors: errors.length > 0 ? errors : undefined,
   };
 }

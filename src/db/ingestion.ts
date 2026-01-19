@@ -61,7 +61,8 @@ export async function ingestRawReport(
       expected_count: metadata.expectedCount ?? 0,
       skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
       flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
-      unexpected_count: metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
+      unexpected_count:
+        metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
       labels: metadata.labels ?? "",
     })
     .onConflict((oc) =>
@@ -82,83 +83,118 @@ export async function ingestRawReport(
     )
     .execute();
 
-  const processSuite = async (suite: any) => {
+  const specs: any[] = [];
+  const results: any[] = [];
+  const attempts: any[] = [];
+
+  const processSuite = (suite: any) => {
     for (const spec of suite.specs ?? []) {
       const testId = spec.id;
       const title = spec.title;
       const filePath = spec.file;
       const line = spec.line;
 
-      // Upsert test identity
-      await db
-        .insertInto("specs")
-        .values({ id: testId, title, file: filePath, line })
-        .onConflict((oc) => oc.column("id").doNothing())
-        .execute();
+      specs.push({ id: testId, title, file: filePath, line });
 
       for (const test of spec.tests ?? []) {
         const projectId = test.projectName ?? "";
         const resultId = `${runId}:${testId}:${projectId}`;
 
         // Compute final status from attempts if available
-        const lastResult = test.results && test.results.length > 0 ? test.results[test.results.length - 1] : null;
-        const computedStatus = lastResult ? lastResult.status : (spec.ok ? "passed" : "failed");
+        const lastResult =
+          test.results && test.results.length > 0
+            ? test.results[test.results.length - 1]
+            : null;
+        const computedStatus = lastResult
+          ? lastResult.status
+          : spec.ok
+          ? "passed"
+          : "failed";
 
-        // Upsert result for this project
-        await db
-          .insertInto("results")
-          .values({
-            id: resultId,
-            run_id: runId,
-            test_id: testId,
-            project_id: projectId,
-            project_name: projectId,
-            status: computedStatus,
-          })
-          .onConflict((oc) =>
-            oc.column("id").doUpdateSet({
-              status: (eb) => eb.ref("excluded.status"),
-            })
-          )
-          .execute();
+        results.push({
+          id: resultId,
+          run_id: runId,
+          test_id: testId,
+          project_id: projectId,
+          project_name: projectId,
+          status: computedStatus,
+        });
 
         for (const result of test.results ?? []) {
           // Use deterministic ID for attempts: run+test+project+retry
           const attemptId = `${runId}:${testId}:${projectId}:${result.retry}`;
-          await db
-            .insertInto("attempts")
-            .values({
-              id: attemptId,
-              run_id: runId,
-              test_id: testId,
-              project_id: projectId,
-              status: result.status,
-              duration_ms: result.duration,
-              retry: result.retry,
-              worker_index: result.workerIndex,
-              start_time: result.startTime,
-              error_msg: result.error?.message ?? null,
-            })
-            .onConflict((oc) =>
-              oc.column("id").doUpdateSet({
-                status: (eb) => eb.ref("excluded.status"),
-                duration_ms: (eb) => eb.ref("excluded.duration_ms"),
-                worker_index: (eb) => eb.ref("excluded.worker_index"),
-                start_time: (eb) => eb.ref("excluded.start_time"),
-                error_msg: (eb) => eb.ref("excluded.error_msg"),
-              })
-            )
-            .execute();
+          attempts.push({
+            id: attemptId,
+            run_id: runId,
+            test_id: testId,
+            project_id: projectId,
+            status: result.status,
+            duration_ms: result.duration,
+            retry: result.retry,
+            worker_index: result.workerIndex,
+            start_time: result.startTime,
+            error_msg: result.error?.message ?? null,
+          });
         }
       }
     }
     for (const child of suite.suites ?? []) {
-      await processSuite(child);
+      processSuite(child);
     }
   };
 
   for (const suite of reportJson.suites ?? []) {
-    await processSuite(suite);
+    processSuite(suite);
+  }
+
+  // Bulk inserts with chunking
+  // Cloudflare D1 has a hard limit of 100 variables per statement.
+  if (specs.length > 0) {
+    const CHUNK_SIZE = 20; // 4 columns * 20 = 80 variables
+    for (let i = 0; i < specs.length; i += CHUNK_SIZE) {
+      const chunk = specs.slice(i, i + CHUNK_SIZE);
+      await db
+        .insertInto("specs")
+        .values(chunk)
+        .onConflict((oc) => oc.column("id").doNothing())
+        .execute();
+    }
+  }
+
+  if (results.length > 0) {
+    const CHUNK_SIZE = 15; // 6 columns * 15 = 90 variables
+    for (let i = 0; i < results.length; i += CHUNK_SIZE) {
+      const chunk = results.slice(i, i + CHUNK_SIZE);
+      await db
+        .insertInto("results")
+        .values(chunk)
+        .onConflict((oc) =>
+          oc.column("id").doUpdateSet({
+            status: (eb) => eb.ref("excluded.status"),
+          })
+        )
+        .execute();
+    }
+  }
+
+  if (attempts.length > 0) {
+    const CHUNK_SIZE = 10; // 10 columns * 10 = 100 variables
+    for (let i = 0; i < attempts.length; i += CHUNK_SIZE) {
+      const chunk = attempts.slice(i, i + CHUNK_SIZE);
+      await db
+        .insertInto("attempts")
+        .values(chunk)
+        .onConflict((oc) =>
+          oc.column("id").doUpdateSet({
+            status: (eb) => eb.ref("excluded.status"),
+            duration_ms: (eb) => eb.ref("excluded.duration_ms"),
+            worker_index: (eb) => eb.ref("excluded.worker_index"),
+            start_time: (eb) => eb.ref("excluded.start_time"),
+            error_msg: (eb) => eb.ref("excluded.error_msg"),
+          })
+        )
+        .execute();
+    }
   }
 }
 
@@ -166,20 +202,20 @@ export async function ingestRawReport(
  * Computes metrics for a given run based on attempts entries.
  */
 export async function computeRunMetrics(runId: string) {
-  const results = await db
+  const attempts = await db
     .selectFrom("attempts")
     .selectAll()
     .where("run_id", "=", runId)
     .execute();
 
-  if (results.length === 0) return;
+  if (attempts.length === 0) return;
 
   // Compute earliest start and latest end
   let earliestStart: string | null = null;
   let latestEndMs = 0;
 
   const testProjectToResults = new Map<string, any[]>();
-  for (const r of results) {
+  for (const r of attempts) {
     const key = `${r.test_id}:${r.project_id ?? ""}`;
     const arr = testProjectToResults.get(key) ?? [];
     arr.push(r);
@@ -200,6 +236,8 @@ export async function computeRunMetrics(runId: string) {
   let flakyCount = 0;
   let unexpectedCount = 0;
 
+  const resultsToUpdate: any[] = [];
+
   for (const [key, arr] of testProjectToResults) {
     const [testId, projectId] = key.split(":");
     let maxRetry = -1;
@@ -208,7 +246,10 @@ export async function computeRunMetrics(runId: string) {
     let hadPass = false;
 
     for (const r of arr) {
-      const isFailed = r.status === "failed" || r.status === "timedOut" || r.status === "interrupted";
+      const isFailed =
+        r.status === "failed" ||
+        r.status === "timedOut" ||
+        r.status === "interrupted";
       if (isFailed) hadFail = true;
       if (r.status === "passed") hadPass = true;
       if ((r.retry ?? 0) >= maxRetry) {
@@ -222,7 +263,11 @@ export async function computeRunMetrics(runId: string) {
       skippedCount += 1;
     } else if (flakyInRun) {
       flakyCount += 1;
-    } else if (finalStatus === "failed" || finalStatus === "timedOut" || finalStatus === "interrupted") {
+    } else if (
+      finalStatus === "failed" ||
+      finalStatus === "timedOut" ||
+      finalStatus === "interrupted"
+    ) {
       unexpectedCount += 1;
     } else if (finalStatus === "passed") {
       expectedCount += 1;
@@ -230,11 +275,31 @@ export async function computeRunMetrics(runId: string) {
 
     // Sync the final status back to the results table for this logical test/project result
     if (finalStatus) {
-      await db.updateTable("results")
-        .set({ status: finalStatus })
-        .where("run_id", "=", runId)
-        .where("test_id", "=", testId)
-        .where("project_id", "=", projectId)
+      resultsToUpdate.push({
+        id: `${runId}:${testId}:${projectId}`,
+        run_id: runId,
+        test_id: testId,
+        project_id: projectId,
+        project_name: projectId,
+        status: finalStatus,
+      });
+    }
+  }
+
+  // Bulk update results status
+  if (resultsToUpdate.length > 0) {
+    // Cloudflare D1 variable limit: 100. results has 6 columns.
+    const CHUNK_SIZE = 15; // 15 * 6 = 90 variables
+    for (let i = 0; i < resultsToUpdate.length; i += CHUNK_SIZE) {
+      const chunk = resultsToUpdate.slice(i, i + CHUNK_SIZE);
+      await db
+        .insertInto("results")
+        .values(chunk)
+        .onConflict((oc) =>
+          oc.column("id").doUpdateSet({
+            status: (eb) => eb.ref("excluded.status"),
+          })
+        )
         .execute();
     }
   }
@@ -256,4 +321,322 @@ export async function computeRunMetrics(runId: string) {
     })
     .where("id", "=", runId)
     .execute();
+}
+
+/**
+ * Ingests a batch of reports into the database.
+ * This is more efficient than calling ingestRawReport for each report.
+ */
+export async function ingestReportsBatch(
+  reports: { metadata: IngestionMetadata; reportJson: any }[]
+) {
+  if (reports.length === 0) return;
+
+  const runs: any[] = [];
+  const specs: any[] = [];
+  const results: any[] = [];
+  const attempts: any[] = [];
+
+  for (const { metadata, reportJson } of reports) {
+    const { runId } = metadata;
+
+    runs.push({
+      id: runId,
+      pr_user: metadata.prUser ?? "",
+      repo: metadata.repo,
+      branch: metadata.branch,
+      commit_hash: metadata.commit,
+      commit_href: metadata.commitHref ?? "",
+      pr_href: metadata.prHref ?? "",
+      pr_title: metadata.prTitle ?? "",
+      build_href: metadata.buildHref ?? "",
+      playwright_version: metadata.playwrightVersion ?? "",
+      workers: metadata.workers ?? 0,
+      shard_current: metadata.shard_current ?? metadata.shardCurrent ?? 0,
+      shard_total: metadata.shard_total ?? metadata.shardTotal ?? 0,
+      start_time: metadata.startTime ?? new Date().toISOString(),
+      duration_ms: metadata.durationMs ?? 0,
+      expected_count: metadata.expectedCount ?? 0,
+      skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
+      flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
+      unexpected_count:
+        metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
+      labels: metadata.labels ?? "",
+    });
+
+    const processSuite = (suite: any) => {
+      for (const spec of suite.specs ?? []) {
+        const testId = spec.id;
+        specs.push({
+          id: testId,
+          title: spec.title,
+          file: spec.file,
+          line: spec.line,
+        });
+
+        for (const test of spec.tests ?? []) {
+          const projectId = test.projectName ?? "";
+          const resultId = `${runId}:${testId}:${projectId}`;
+
+          const lastResult =
+            test.results && test.results.length > 0
+              ? test.results[test.results.length - 1]
+              : null;
+          const computedStatus = lastResult
+            ? lastResult.status
+            : spec.ok
+            ? "passed"
+            : "failed";
+
+          results.push({
+            id: resultId,
+            run_id: runId,
+            test_id: testId,
+            project_id: projectId,
+            project_name: projectId,
+            status: computedStatus,
+          });
+
+          for (const result of test.results ?? []) {
+            attempts.push({
+              id: `${runId}:${testId}:${projectId}:${result.retry}`,
+              run_id: runId,
+              test_id: testId,
+              project_id: projectId,
+              status: result.status,
+              duration_ms: result.duration,
+              retry: result.retry,
+              worker_index: result.workerIndex,
+              start_time: result.startTime,
+              error_msg: result.error?.message ?? null,
+            });
+          }
+        }
+      }
+      for (const child of suite.suites ?? []) {
+        processSuite(child);
+      }
+    };
+
+    for (const suite of reportJson.suites ?? []) {
+      processSuite(suite);
+    }
+  }
+
+  // Cloudflare D1 Variable Limit: 100
+  // runs: 21 cols -> chunk 4
+  const RUN_CHUNK = 4;
+  for (let i = 0; i < runs.length; i += RUN_CHUNK) {
+    await db
+      .insertInto("runs")
+      .values(runs.slice(i, i + RUN_CHUNK))
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          pr_user: (eb) => eb.ref("excluded.pr_user"),
+          repo: (eb) => eb.ref("excluded.repo"),
+          branch: (eb) => eb.ref("excluded.branch"),
+          commit_hash: (eb) => eb.ref("excluded.commit_hash"),
+          commit_href: (eb) => eb.ref("excluded.commit_href"),
+          pr_href: (eb) => eb.ref("excluded.pr_href"),
+          pr_title: (eb) => eb.ref("excluded.pr_title"),
+          build_href: (eb) => eb.ref("excluded.build_href"),
+          playwright_version: (eb) => eb.ref("excluded.playwright_version"),
+          labels: (eb) => eb.ref("excluded.labels"),
+        })
+      )
+      .execute();
+  }
+
+  // specs: 4 cols -> chunk 25 (using 20 for safety)
+  const SPEC_CHUNK = 20;
+  for (let i = 0; i < specs.length; i += SPEC_CHUNK) {
+    await db
+      .insertInto("specs")
+      .values(specs.slice(i, i + SPEC_CHUNK))
+      .onConflict((oc) => oc.column("id").doNothing())
+      .execute();
+  }
+
+  // results: 6 cols -> chunk 16 (using 15 for safety)
+  const RESULT_CHUNK = 15;
+  for (let i = 0; i < results.length; i += RESULT_CHUNK) {
+    await db
+      .insertInto("results")
+      .values(results.slice(i, i + RESULT_CHUNK))
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          status: (eb) => eb.ref("excluded.status"),
+        })
+      )
+      .execute();
+  }
+
+  // attempts: 10 cols -> chunk 10
+  const ATTEMPT_CHUNK = 10;
+  for (let i = 0; i < attempts.length; i += ATTEMPT_CHUNK) {
+    await db
+      .insertInto("attempts")
+      .values(attempts.slice(i, i + ATTEMPT_CHUNK))
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          status: (eb) => eb.ref("excluded.status"),
+          duration_ms: (eb) => eb.ref("excluded.duration_ms"),
+          worker_index: (eb) => eb.ref("excluded.worker_index"),
+          start_time: (eb) => eb.ref("excluded.start_time"),
+          error_msg: (eb) => eb.ref("excluded.error_msg"),
+        })
+      )
+      .execute();
+  }
+}
+
+/**
+ * Computes metrics for multiple runs efficiently.
+ */
+export async function computeMultipleRunsMetrics(runIds: string[]) {
+  if (runIds.length === 0) return;
+
+  // We fetch all attempts for these runs in one query if possible,
+  // or chunk if runIds is very large.
+  const allAttempts = await db
+    .selectFrom("attempts")
+    .selectAll()
+    .where("run_id", "in", runIds)
+    .execute();
+
+  const attemptsByRun = new Map<string, any[]>();
+  for (const a of allAttempts) {
+    const arr = attemptsByRun.get(a.run_id) || [];
+    arr.push(a);
+    attemptsByRun.set(a.run_id, arr);
+  }
+
+  const resultsToUpdate: any[] = [];
+  const runsToUpdate: any[] = [];
+
+  for (const runId of runIds) {
+    const attempts = attemptsByRun.get(runId) || [];
+    if (attempts.length === 0) continue;
+
+    let earliestStart: string | null = null;
+    let latestEndMs = 0;
+
+    const testProjectToResults = new Map<string, any[]>();
+    for (const r of attempts) {
+      const key = `${r.test_id}:${r.project_id ?? ""}`;
+      const arr = testProjectToResults.get(key) ?? [];
+      arr.push(r);
+      testProjectToResults.set(key, arr);
+
+      if (r.start_time) {
+        if (!earliestStart || r.start_time < earliestStart) {
+          earliestStart = r.start_time;
+        }
+        const startMs = Date.parse(r.start_time);
+        const endMs = isNaN(startMs) ? 0 : startMs + (r.duration_ms ?? 0);
+        if (endMs > latestEndMs) latestEndMs = endMs;
+      }
+    }
+
+    let expectedCount = 0;
+    let skippedCount = 0;
+    let flakyCount = 0;
+    let unexpectedCount = 0;
+
+    for (const [key, arr] of testProjectToResults) {
+      const [testId, projectId] = key.split(":");
+      let maxRetry = -1;
+      let finalStatus: string | null = null;
+      let hadFail = false;
+      let hadPass = false;
+
+      for (const r of arr) {
+        const isFailed =
+          r.status === "failed" ||
+          r.status === "timedOut" ||
+          r.status === "interrupted";
+        if (isFailed) hadFail = true;
+        if (r.status === "passed") hadPass = true;
+        if ((r.retry ?? 0) >= maxRetry) {
+          maxRetry = r.retry ?? 0;
+          finalStatus = r.status ?? null;
+        }
+      }
+
+      const flakyInRun = hadFail && hadPass;
+      if (finalStatus === "skipped") {
+        skippedCount += 1;
+      } else if (flakyInRun) {
+        flakyCount += 1;
+      } else if (
+        finalStatus === "failed" ||
+        finalStatus === "timedOut" ||
+        finalStatus === "interrupted"
+      ) {
+        unexpectedCount += 1;
+      } else if (finalStatus === "passed") {
+        expectedCount += 1;
+      }
+
+      if (finalStatus) {
+        resultsToUpdate.push({
+          id: `${runId}:${testId}:${projectId}`,
+          run_id: runId,
+          test_id: testId,
+          project_id: projectId,
+          project_name: projectId,
+          status: finalStatus,
+        });
+      }
+    }
+
+    const derivedDuration =
+      latestEndMs > 0 && earliestStart
+        ? Math.max(0, latestEndMs - Date.parse(earliestStart))
+        : 0;
+
+    runsToUpdate.push({
+      id: runId,
+      start_time: earliestStart ?? new Date().toISOString(),
+      duration_ms: derivedDuration,
+      expected_count: expectedCount,
+      skipped_count: skippedCount,
+      flaky_count: flakyCount,
+      unexpected_count: unexpectedCount,
+    });
+  }
+
+  // Bulk update results
+  const RESULT_CHUNK = 15;
+  for (let i = 0; i < resultsToUpdate.length; i += RESULT_CHUNK) {
+    await db
+      .insertInto("results")
+      .values(resultsToUpdate.slice(i, i + RESULT_CHUNK))
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          status: (eb) => eb.ref("excluded.status"),
+        })
+      )
+      .execute();
+  }
+
+  // Bulk update runs (since Kysely update doesn't support bulk easy, we use upsert/replace pattern)
+  // Actually, for runs we have a lot of columns but we only want to update a few.
+  // We'll use a loop of updates for now as it's typically only 1 query per runId,
+  // but if we have many runs, we might want to optimize.
+  // Given we only re-ingest a handful of runs at a time, this is likely fine.
+  for (const runData of runsToUpdate) {
+    await db
+      .updateTable("runs")
+      .set({
+        start_time: runData.start_time,
+        duration_ms: runData.duration_ms,
+        expected_count: runData.expected_count,
+        skipped_count: runData.skipped_count,
+        flaky_count: runData.flaky_count,
+        unexpected_count: runData.unexpected_count,
+      })
+      .where("id", "=", runData.id)
+      .execute();
+  }
 }

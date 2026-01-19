@@ -21,8 +21,13 @@ import {
 export { Database } from "@/db/durableObject";
 
 export type AppContext = {};
+export type QueueMessage = {
+  type: "ingest";
+  r2ObjectKey: string;
+  metadata?: IngestionMetadata;
+};
 
-export default defineApp([
+const app = defineApp([
   setCommonHeaders(),
 
   render(Document, [
@@ -112,14 +117,13 @@ export default defineApp([
     });
 
     // -----------------------------
-    // Ingest and compute metrics
+    // Push to Queue for ingestion
     // -----------------------------
-    waitUntil(
-      (async () => {
-        await ingestRawReport(metadata, reportJson);
-        await computeRunMetrics(runId);
-      })()
-    );
+    await env.INGESTION_QUEUE.send({
+      type: "ingest",
+      r2ObjectKey,
+      metadata,
+    });
 
     return new Response(
       JSON.stringify({
@@ -134,3 +138,83 @@ export default defineApp([
   }),
   ...adminApiRoutes,
 ]);
+
+export default {
+  ...app,
+  async queue(
+    batch: MessageBatch<QueueMessage>,
+    env: Env,
+    ctx: ExecutionContext
+  ) {
+    for (const message of batch.messages) {
+      const { type, r2ObjectKey, metadata } = message.body;
+
+      if (type === "ingest") {
+        console.log(`[Queue] Ingesting ${r2ObjectKey}...`);
+        try {
+          const r2Obj = await env.R2.get(r2ObjectKey);
+          if (!r2Obj) {
+            console.error(`[Queue] Could not find R2 object: ${r2ObjectKey}`);
+            continue;
+          }
+
+          const reportJson = await r2Obj.json<any>();
+          let finalMetadata = metadata;
+
+          if (!finalMetadata) {
+            console.log(`[Queue] Metadata missing for ${r2ObjectKey}, deriving...`);
+            const customMetadata = r2Obj.customMetadata ?? {};
+            const parts = r2ObjectKey.split("/");
+            if (parts[0] !== "runs" || parts.length < 5) {
+              console.error(`[Queue] Invalid key format: ${r2ObjectKey}`);
+              continue;
+            }
+
+            const filename = parts[parts.length - 1];
+            const runId = filename.replace(".json", "");
+            const commit = parts[parts.length - 2];
+            const branch = parts[parts.length - 3];
+            const repo = parts.slice(1, parts.length - 3).join("/");
+
+            finalMetadata = {
+              runId,
+              repo,
+              branch,
+              commit,
+              prUser: customMetadata.prUser,
+              playwrightVersion:
+                customMetadata.playwrightVersion ||
+                reportJson.config?.playwrightVersion,
+              workers: customMetadata.workers
+                ? Number(customMetadata.workers)
+                : undefined,
+              shardCurrent: customMetadata.shardCurrent
+                ? Number(customMetadata.shardCurrent)
+                : undefined,
+              shardTotal: customMetadata.shardTotal
+                ? Number(customMetadata.shardTotal)
+                : undefined,
+              startTime: customMetadata.startTime || reportJson.stats?.startTime,
+              durationMs: customMetadata.durationMs
+                ? Number(customMetadata.durationMs)
+                : reportJson.stats?.duration,
+              commitHref: customMetadata.commitHref,
+              prHref: customMetadata.prHref,
+              prTitle: customMetadata.prTitle,
+              buildHref: customMetadata.buildHref,
+            };
+          }
+
+          await ingestRawReport(finalMetadata, reportJson);
+          await computeRunMetrics(finalMetadata.runId);
+          console.log(`[Queue] Successfully ingested ${finalMetadata.runId}`);
+        } catch (error) {
+          console.error(`[Queue] Error ingesting ${r2ObjectKey}:`, error);
+          // Retrying depends on the error, but for now we'll let it fail or the user can re-ingest.
+          // Cloudflare Queues will retry automatically if we throw or don't ack.
+          throw error;
+        }
+      }
+    }
+  },
+};
