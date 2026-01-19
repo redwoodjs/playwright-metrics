@@ -47,6 +47,8 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
   const summaryUrl = `${currentPath}?view=summary`;
   const historyUrl = currentPath;
 
+  const runs = await listRuns({ repo: repoFilter, branch: branchFilter });
+
   // Render summary view
   if (isSummaryView) {
     return (
@@ -73,13 +75,42 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
             </div>
           </div>
         </div>
+        
+        {repoFilter && !branchFilter && (
+          <div className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded">
+            <div className="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+              <a href={link("/runs/:org/:repo", { org: org!, repo: repo! })} className="text-sm font-bold hover:underline">
+                {repoFilter}
+              </a>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono italic">
+              {runs.length} {runs.length === 1 ? "run" : "runs"}
+            </span>
+          </div>
+        )}
+
+        {branchFilter && (
+          <div className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded">
+            <div className="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              <a
+                href={link("/runs/:org/:repo/*", { org: org!, repo: repo!, $0: branchFilter } as any)}
+                className="text-sm font-bold hover:underline"
+              >
+                {branchFilter}
+              </a>
+            </div>
+            <span className="text-[10px] text-gray-400 font-mono italic">
+              {runs.length} {runs.length === 1 ? "run" : "runs"}
+            </span>
+          </div>
+        )}
+
         <SummaryView repo={repoFilter} branch={branchFilter} />
       </div>
     );
   }
-
-  // Render history view (default)
-  const runs = await listRuns({ repo: repoFilter, branch: branchFilter });
 
   // Group by repo
   const groupedByRepo: Record<string, Record<string, typeof runs>> = {};
@@ -121,15 +152,21 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
         </div>
       </div>
 
-      {Object.entries(groupedByRepo).map(([repo, branches]) => (
-        <div key={repo} className="space-y-4">
-          {!repoFilter && (
-            <div className="pb-1">
-              <a href={link("/runs/:org/:repo", { org: repo.split('/')[0], repo: repo.split('/')[1] })} className="text-lg font-bold hover:underline">
-                {repo}
-              </a>
+      {Object.entries(groupedByRepo).map(([repo, branches]) => {
+        const totalRuns = Object.values(branches).reduce((acc, b) => acc + b.length, 0);
+        return (
+          <div key={repo} className="space-y-4">
+            <div className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded">
+              <div className="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                <a href={link("/runs/:org/:repo", { org: repo.split('/')[0], repo: repo.split('/')[1] })} className="text-sm font-bold hover:underline">
+                  {repo}
+                </a>
+              </div>
+              <span className="text-[10px] text-gray-400 font-mono italic">
+                {totalRuns} {totalRuns === 1 ? "run" : "runs"}
+              </span>
             </div>
-          )}
 
           {Object.entries(branches).map(([branch, branchRuns]) => (
             <div key={branch} className="space-y-2">
@@ -179,8 +216,9 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
               </TableContainer>
             </div>
           ))}
-        </div>
-      ))}
+          </div>
+        );
+      })}
 
       {runs.length === 0 && (
         <div className="py-12 text-center text-gray-500 italic border border-dashed border-gray-300 rounded">
