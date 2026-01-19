@@ -476,6 +476,7 @@ export type RepoSpecRow = {
   project_name: string | null;
   final_status: string | null;
   was_flaky: boolean;
+  flaky_run_count?: number;
   attempts: {
     status: string;
     retry?: number;
@@ -483,7 +484,7 @@ export type RepoSpecRow = {
   }[];
 };
 
-export async function listRepoSpecs(repo: string, branch?: string): Promise<RepoSpecRow[]> {
+export async function listRepoSpecs(repo: string, branch?: string, sortByFlakiness = false): Promise<RepoSpecRow[]> {
   // 1. Find all unique (test_id, project_name) for this repo
   let uniqueSpecsQuery = db
     .selectFrom("results as res")
@@ -565,7 +566,7 @@ export async function listRepoSpecs(repo: string, branch?: string): Promise<Repo
     runResultsMap.set(specKey, runMap);
   }
 
-  return uniqueSpecs.map(s => {
+  const results = uniqueSpecs.map(s => {
     const specKey = `${s.test_id}:${s.project_name}`;
     const runMap = runResultsMap.get(specKey);
     
@@ -576,6 +577,11 @@ export async function listRepoSpecs(repo: string, branch?: string): Promise<Repo
       .reverse(); // Back to ASC for display
 
     const latestRun = sortedRuns[sortedRuns.length - 1];
+    
+    // Count flaky runs for sorting
+    const flakyRunCount = Array.from(runMap?.values() ?? [])
+      .filter(r => r.was_flaky)
+      .length;
 
     return {
       test_id: s.test_id,
@@ -585,12 +591,30 @@ export async function listRepoSpecs(repo: string, branch?: string): Promise<Repo
       project_name: s.project_name,
       final_status: latestRun?.status ?? null,
       was_flaky: latestRun?.was_flaky ?? false,
+      flaky_run_count: flakyRunCount,
       attempts: sortedRuns.map(r => ({
         status: r.was_flaky ? "flaky" : (r.status || "unknown"),
         run_id: "" 
       }))
     };
   });
+
+  // Sort by flakiness if requested
+  if (sortByFlakiness) {
+    results.sort((a, b) => {
+      // First by flaky run count (descending)
+      if (b.flaky_run_count !== a.flaky_run_count) {
+        return b.flaky_run_count - a.flaky_run_count;
+      }
+      // Then by file/line (ascending)
+      if (a.file !== b.file) {
+        return (a.file || "").localeCompare(b.file || "");
+      }
+      return (a.line || 0) - (b.line || 0);
+    });
+  }
+
+  return results;
 }
 
 export async function listRunFlakies(commitHash: string): Promise<RunFlakyRow[]> {

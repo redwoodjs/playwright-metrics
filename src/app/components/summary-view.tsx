@@ -1,9 +1,11 @@
-import { listRepoSpecs } from "./actions";
+import { listRepoSpecs, type RepoSpecRow } from "../pages/actions";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 import { AttemptHistory } from "../components/attempt-history";
-import { Breadcrumb, type BreadcrumbItem } from "../components/breadcrumb";
-import { requestInfo } from "rwsdk/worker";
-import { link } from "../shared/links";
+
+interface SummaryViewProps {
+  repo?: string;
+  branch?: string;
+}
 
 const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean }) => {
   if (flaky) {
@@ -45,57 +47,24 @@ const StatusIcon = ({ status, flaky }: { status: string | null; flaky?: boolean 
   return <span className="text-xs text-gray-400 uppercase tracking-tight">{status || "unknown"}</span>;
 };
 
-export const RepoSpecs = async ({ params }: { params: { org: string; repo: string; $0?: string } }) => {
-  const org = params.org;
-  const repo = params.repo;
-  
-  // The catch-all $0 captures everything after /summary/:org/:repo/
-  // It could be just a branch, or branch/commit
-  const fullPath = params.$0 || '';
-  
-  let branch = '';
-  let commit: string | undefined;
-  
-  if (fullPath) {
-    const segments = fullPath.split('/');
-    const lastSegment = segments[segments.length - 1];
-    
-    // If the last segment looks like a commit hash (7+ hex chars), treat it as commit
-    if (lastSegment && lastSegment.length >= 7 && /^[a-f0-9]+$/i.test(lastSegment)) {
-      commit = lastSegment;
-      branch = segments.slice(0, -1).join('/');
-    } else {
-      // Otherwise, the whole path is the branch
-      branch = fullPath;
-    }
+export const SummaryView = async ({ repo, branch }: SummaryViewProps) => {
+  // If no repo is specified, we can't show a summary
+  if (!repo) {
+    return (
+      <div className="py-24 text-center border-2 border-dashed border-gray-100 rounded-xl">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 mb-3 text-gray-400">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h3 className="text-gray-900 font-semibold">Select a repository</h3>
+        <p className="text-gray-500 text-sm mt-1">Choose a repository to view its test summary.</p>
+      </div>
+    );
   }
-  
-  const repoName = `${org}/${repo}`;
-  
-  const rows = await listRepoSpecs(repoName, branch || undefined);
 
-  const breadcrumbItems: BreadcrumbItem[] = [
-    { label: "Test runs", href: "/runs" },
-    { label: repoName, href: link("/runs/:org/:repo", { org, repo }) },
-  ];
-  
-  if (branch) {
-    breadcrumbItems.push({ label: branch, href: link("/runs/:org/:repo/*", { org, repo, $0: branch } as any) });
-  }
-  
-  if (commit) {
-    breadcrumbItems.push({ label: `Run ${commit.substring(0, 7)}`, active: true });
-  }
+  const rows = await listRepoSpecs(repo, branch, true); // sortByFlakiness = true
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold">
-          Test Summary{commit ? ` for ${commit.substring(0, 7)}` : branch ? ` for ${branch}` : ` for ${repoName}`}
-        </h1>
-        <Breadcrumb items={breadcrumbItems} />
-      </div>
-
+    <div className="space-y-4">
       <TableContainer>
         <Table>
           <TableHeader>

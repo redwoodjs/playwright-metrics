@@ -2,9 +2,9 @@ import { listRuns } from "./actions";
 import { Table, TableBody, TableCell, TableContainer, TableHeadCell, TableHeader, TableRow } from "../components/table";
 import { RunRow } from "../components/run-row";
 import { Breadcrumb, type BreadcrumbItem } from "../components/breadcrumb";
-import { formatDate } from "../shared/format";
 import { requestInfo } from "rwsdk/worker";
 import { link } from "../shared/links";
+import { SummaryView } from "../components/summary-view";
 
 export const Runs = async ({ params }: { params?: { org?: string; repo?: string; $0?: string } }) => {
   const url = new URL(requestInfo.request.url);
@@ -17,22 +17,9 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
   // Branch is captured by the catch-all parameter $0
   const branchFilter = params?.$0;
 
-  const runs = await listRuns({ repo: repoFilter, branch: branchFilter });
-
-  // Group by repo
-  const groupedByRepo: Record<string, Record<string, typeof runs>> = {};
-  for (const run of runs) {
-    const repoParts = run.repo.split("/");
-    const repoName = repoParts.length >= 2 ? repoParts.slice(0, 2).join("/") : run.repo;
-
-    if (!groupedByRepo[repoName]) {
-      groupedByRepo[repoName] = {};
-    }
-    if (!groupedByRepo[repoName][run.branch]) {
-      groupedByRepo[repoName][run.branch] = [];
-    }
-    groupedByRepo[repoName][run.branch].push(run);
-  }
+  // Check if we're in summary view
+  const viewParam = url.searchParams.get("view");
+  const isSummaryView = viewParam === "summary";
 
   const breadcrumbItems: BreadcrumbItem[] = [];
 
@@ -54,26 +41,83 @@ export const Runs = async ({ params }: { params?: { org?: string; repo?: string;
     }
   }
 
-  const breadcrumbActions = repoFilter && (
-    <a 
-      href={
-        branchFilter 
-          ? link("/summary/:org/:repo/*", { org: org!, repo: repo!, $0: branchFilter } as any)
-          : link("/summary/:org/:repo", { org: org!, repo: repo! })
-      } 
-      className="text-xs text-gray-400 hover:text-black hover:underline flex items-center gap-1"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Test summary
-    </a>
-  );
+
+  // Build toggle URLs
+  const currentPath = pathname;
+  const summaryUrl = `${currentPath}?view=summary`;
+  const historyUrl = currentPath;
+
+  // Render summary view
+  if (isSummaryView) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="w-full">
+            <h1 className="text-2xl font-bold mb-2">Test Summary</h1>
+            <Breadcrumb items={breadcrumbItems}/>
+          </div>
+          <div className="ml-4">
+            <div className="inline-flex items-center rounded-md border border-gray-300 bg-white p-1 gap-1">
+              <a
+                href={summaryUrl}
+                className="px-3 py-1.5 text-xs font-medium rounded transition-all bg-black text-white"
+              >
+                Summary
+              </a>
+              <a
+                href={historyUrl}
+                className="px-3 py-1.5 text-xs font-medium rounded transition-all text-gray-600 hover:text-black hover:bg-gray-50"
+              >
+                History
+              </a>
+            </div>
+          </div>
+        </div>
+        <SummaryView repo={repoFilter} branch={branchFilter} />
+      </div>
+    );
+  }
+
+  // Render history view (default)
+  const runs = await listRuns({ repo: repoFilter, branch: branchFilter });
+
+  // Group by repo
+  const groupedByRepo: Record<string, Record<string, typeof runs>> = {};
+  for (const run of runs) {
+    const repoParts = run.repo.split("/");
+    const repoName = repoParts.length >= 2 ? repoParts.slice(0, 2).join("/") : run.repo;
+
+    if (!groupedByRepo[repoName]) {
+      groupedByRepo[repoName] = {};
+    }
+    if (!groupedByRepo[repoName][run.branch]) {
+      groupedByRepo[repoName][run.branch] = [];
+    }
+    groupedByRepo[repoName][run.branch].push(run);
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="w-full">
           <h1 className="text-2xl font-bold mb-2">Test runs</h1>
-          <Breadcrumb items={breadcrumbItems} actions={breadcrumbActions} />
+          <Breadcrumb items={breadcrumbItems} />
+        </div>
+        <div className="ml-4">
+          <div className="inline-flex items-center rounded-md border border-gray-300 bg-white p-1 gap-1">
+            <a
+              href={summaryUrl}
+              className="px-3 py-1.5 text-xs font-medium rounded transition-all text-gray-600 hover:text-black hover:bg-gray-50"
+            >
+              Summary
+            </a>
+            <a
+              href={historyUrl}
+              className="px-3 py-1.5 text-xs font-medium rounded transition-all bg-black text-white"
+            >
+              History
+            </a>
+          </div>
         </div>
       </div>
 
