@@ -1,6 +1,7 @@
-import { requestInfo } from "rwsdk/worker"
-import { getLeaderboardData } from "./actions";
+import { requestInfo } from "rwsdk/worker";
+import { getLeaderboardData, listBranches } from "./actions";
 import { AttemptHistory } from "@/app/components/attempt-history";
+import { BranchFilter } from "./branch-filter";
 
 function formatWasteTime(ms: number): string {
   if (ms < 1000) {
@@ -13,17 +14,25 @@ function formatWasteTime(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   if (minutes < 60) {
-    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
   }
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
+
 export const Leaderboard = async () => {
   const url = new URL(requestInfo.request.url);
   const sortBy = url.searchParams.get("sort") || "rate";
-  const rows = await getLeaderboardData(50, sortBy as any);
+  const branch = url.searchParams.get("branch") || "";
+
+  const [rows, branches] = await Promise.all([
+    getLeaderboardData(50, sortBy as any, branch || undefined),
+    listBranches(),
+  ]);
 
   const sortOptions = [
     { label: "Rate", value: "rate" },
@@ -34,21 +43,30 @@ export const Leaderboard = async () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Flakiness Leaderboard</h1>
-        <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-md text-sm border border-gray-200">
-          <span className="px-2 text-gray-500 font-medium">Sort by:</span>
-          {sortOptions.map((opt) => (
-            <a
-              key={opt.value}
-              href={`?sort=${opt.value}`}
-              className={`px-3 py-1 rounded-sm transition-colors ${
-                sortBy === opt.value
-                  ? "bg-white text-orange-600 font-bold shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              {opt.label}
-            </a>
-          ))}
+
+        <div className="flex items-center gap-4">
+          {/* Branch filter */}
+          <BranchFilter branch={branch} branches={branches} sortBy={sortBy} />
+
+          <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-md text-sm border border-gray-200">
+            <span className="px-2 text-gray-500 font-medium">Sort by:</span>
+            {sortOptions.map((opt) => {
+              const sortUrl = new URL(requestInfo.request.url);
+              sortUrl.searchParams.set("sort", opt.value);
+              return (
+                <a
+                  key={opt.value}
+                  href={sortUrl.searchParams.toString() ? `?${sortUrl.searchParams.toString()}` : "?"}
+                  className={`px-3 py-1 rounded-sm transition-colors ${sortBy === opt.value
+                    ? "bg-white text-orange-600 font-bold shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                    }`}
+                >
+                  {opt.label}
+                </a>
+              );
+            })}
+          </div>
         </div>
       </div>
       <div className="space-y-3">
@@ -95,9 +113,9 @@ export const Leaderboard = async () => {
 
               {/* Attempt History */}
               <div className="flex items-center justify-end w-[130px]">
-                <AttemptHistory 
-                  attempts={row.recent_results.map(status => ({ status }))} 
-                  limit={12} 
+                <AttemptHistory
+                  attempts={row.recent_results.map(status => ({ status }))}
+                  limit={12}
                   showEmptySlots={false}
                 />
               </div>

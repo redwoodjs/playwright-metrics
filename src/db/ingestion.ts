@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { db, sql } from "@/db";
 
 export type IngestionMetadata = {
   runId: string;
@@ -202,6 +202,15 @@ export async function ingestRawReport(
  * Computes metrics for a given run based on attempts entries.
  */
 export async function computeRunMetrics(runId: string) {
+  const run = await db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "=", runId)
+    .executeTakeFirst();
+  if (!run) return;
+
+  const branch = run.branch;
+
   const attempts = await db
     .selectFrom("attempts")
     .selectAll()
@@ -244,6 +253,10 @@ export async function computeRunMetrics(runId: string) {
     let finalStatus: string | null = null;
     let hadFail = false;
     let hadPass = false;
+    let retryDurationMs = 0;
+    let retryCount = 0;
+    let finalDurationMs = 0;
+    let startTime: string | null = null;
 
     for (const r of arr) {
       const isFailed =
@@ -252,9 +265,17 @@ export async function computeRunMetrics(runId: string) {
         r.status === "interrupted";
       if (isFailed) hadFail = true;
       if (r.status === "passed") hadPass = true;
+
+      if ((r.retry ?? 0) > 0) {
+        retryDurationMs += r.duration_ms ?? 0;
+        retryCount += 1;
+      }
+
       if ((r.retry ?? 0) >= maxRetry) {
         maxRetry = r.retry ?? 0;
         finalStatus = r.status ?? null;
+        finalDurationMs = r.duration_ms ?? 0;
+        startTime = r.start_time;
       }
     }
 
@@ -273,7 +294,6 @@ export async function computeRunMetrics(runId: string) {
       expectedCount += 1;
     }
 
-    // Sync the final status back to the results table for this logical test/project result
     if (finalStatus) {
       resultsToUpdate.push({
         id: `${runId}:${testId}:${projectId}`,
@@ -282,14 +302,20 @@ export async function computeRunMetrics(runId: string) {
         project_id: projectId,
         project_name: projectId,
         status: finalStatus,
+        branch,
+        was_flaky: flakyInRun,
+        had_failure: hadFail,
+        retry_duration_ms: retryDurationMs,
+        retry_count: retryCount,
+        final_duration_ms: finalDurationMs,
+        start_time: startTime ?? run.start_time,
       });
     }
   }
 
   // Bulk update results status
   if (resultsToUpdate.length > 0) {
-    // Cloudflare D1 variable limit: 100. results has 6 columns.
-    const CHUNK_SIZE = 15; // 15 * 6 = 90 variables
+    const CHUNK_SIZE = 5;
     for (let i = 0; i < resultsToUpdate.length; i += CHUNK_SIZE) {
       const chunk = resultsToUpdate.slice(i, i + CHUNK_SIZE);
       await db
@@ -298,7 +324,74 @@ export async function computeRunMetrics(runId: string) {
         .onConflict((oc) =>
           oc.column("id").doUpdateSet({
             status: (eb) => eb.ref("excluded.status"),
-          })
+            branch: (eb) => eb.ref("excluded.branch"),
+            was_flaky: (eb) => eb.ref("excluded.was_flaky"),
+            had_failure: (eb) => eb.ref("excluded.had_failure"),
+            retry_duration_ms: (eb) => eb.ref("excluded.retry_duration_ms"),
+            retry_count: (eb) => eb.ref("excluded.retry_count"),
+            final_duration_ms: (eb) => eb.ref("excluded.final_duration_ms"),
+            start_time: (eb) => eb.ref("excluded.start_time"),
+          }),
+        )
+        .execute();
+    }
+
+    const testMetricsToUpdate = new Map<string, any>();
+    for (const res of resultsToUpdate) {
+      const metricKey = `${res.test_id}:${res.branch}`;
+      const existing = testMetricsToUpdate.get(metricKey) || {
+        test_id: res.test_id,
+        branch: res.branch,
+        total_runs: 0,
+        flaky_runs: 0,
+        runs_with_failure: 0,
+        retry_duration_total_ms: 0,
+        retry_count_total: 0,
+        duration_total_ms: 0,
+        last_flaky_start_time: null,
+      };
+
+      existing.total_runs += 1;
+      if (res.was_flaky) {
+        existing.flaky_runs += 1;
+        if (
+          !existing.last_flaky_start_time ||
+          res.start_time > existing.last_flaky_start_time
+        ) {
+          existing.last_flaky_start_time = res.start_time;
+        }
+      }
+      if (res.had_failure) existing.runs_with_failure += 1;
+      existing.retry_duration_total_ms += res.retry_duration_ms;
+      existing.retry_count_total += res.retry_count;
+      existing.duration_total_ms += res.final_duration_ms;
+
+      testMetricsToUpdate.set(metricKey, existing);
+    }
+
+    for (const metric of testMetricsToUpdate.values()) {
+      await db
+        .insertInto("test_metrics")
+        .values(metric)
+        .onConflict((oc) =>
+          oc.columns(["test_id", "branch"]).doUpdateSet({
+            total_runs: (eb) =>
+              sql`test_metrics.total_runs + ${metric.total_runs}`,
+            flaky_runs: (eb) =>
+              sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
+            runs_with_failure: (eb) =>
+              sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
+            retry_duration_total_ms: (eb) =>
+              sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
+            retry_count_total: (eb) =>
+              sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
+            duration_total_ms: (eb) =>
+              sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
+            last_flaky_start_time: (eb) =>
+              metric.last_flaky_start_time
+                ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
+                : eb.ref("test_metrics.last_flaky_start_time"),
+          }),
         )
         .execute();
     }
@@ -457,8 +550,8 @@ export async function ingestReportsBatch(
       .execute();
   }
 
-  // results: 6 cols -> chunk 16 (using 15 for safety)
-  const RESULT_CHUNK = 15;
+  // results: 6+ cols -> chunk 5 for safety
+  const RESULT_CHUNK = 5;
   for (let i = 0; i < results.length; i += RESULT_CHUNK) {
     await db
       .insertInto("results")
@@ -471,8 +564,8 @@ export async function ingestReportsBatch(
       .execute();
   }
 
-  // attempts: 10 cols -> chunk 10
-  const ATTEMPT_CHUNK = 10;
+  // attempts: 10+ cols -> chunk 8 for safety
+  const ATTEMPT_CHUNK = 8;
   for (let i = 0; i < attempts.length; i += ATTEMPT_CHUNK) {
     await db
       .insertInto("attempts")
@@ -496,8 +589,13 @@ export async function ingestReportsBatch(
 export async function computeMultipleRunsMetrics(runIds: string[]) {
   if (runIds.length === 0) return;
 
-  // We fetch all attempts for these runs in one query if possible,
-  // or chunk if runIds is very large.
+  const runs = await db
+    .selectFrom("runs")
+    .selectAll()
+    .where("id", "in", runIds)
+    .execute();
+  const runMap = new Map(runs.map((r) => [r.id, r]));
+
   const allAttempts = await db
     .selectFrom("attempts")
     .selectAll()
@@ -515,6 +613,10 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
   const runsToUpdate: any[] = [];
 
   for (const runId of runIds) {
+    const run = runMap.get(runId);
+    if (!run) continue;
+    const branch = run.branch;
+
     const attempts = attemptsByRun.get(runId) || [];
     if (attempts.length === 0) continue;
 
@@ -549,6 +651,10 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
       let finalStatus: string | null = null;
       let hadFail = false;
       let hadPass = false;
+      let retryDurationMs = 0;
+      let retryCount = 0;
+      let finalDurationMs = 0;
+      let startTime: string | null = null;
 
       for (const r of arr) {
         const isFailed =
@@ -557,9 +663,17 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
           r.status === "interrupted";
         if (isFailed) hadFail = true;
         if (r.status === "passed") hadPass = true;
+
+        if ((r.retry ?? 0) > 0) {
+          retryDurationMs += r.duration_ms ?? 0;
+          retryCount += 1;
+        }
+
         if ((r.retry ?? 0) >= maxRetry) {
           maxRetry = r.retry ?? 0;
           finalStatus = r.status ?? null;
+          finalDurationMs = r.duration_ms ?? 0;
+          startTime = r.start_time;
         }
       }
 
@@ -586,6 +700,13 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
           project_id: projectId,
           project_name: projectId,
           status: finalStatus,
+          branch,
+          was_flaky: flakyInRun,
+          had_failure: hadFail,
+          retry_duration_ms: retryDurationMs,
+          retry_count: retryCount,
+          final_duration_ms: finalDurationMs,
+          start_time: startTime ?? run.start_time,
         });
       }
     }
@@ -607,24 +728,87 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
   }
 
   // Bulk update results
-  const RESULT_CHUNK = 15;
+  const RESULT_CHUNK = 5;
   for (let i = 0; i < resultsToUpdate.length; i += RESULT_CHUNK) {
+    const chunk = resultsToUpdate.slice(i, i + RESULT_CHUNK);
     await db
       .insertInto("results")
-      .values(resultsToUpdate.slice(i, i + RESULT_CHUNK))
+      .values(chunk)
       .onConflict((oc) =>
         oc.column("id").doUpdateSet({
           status: (eb) => eb.ref("excluded.status"),
-        })
+          branch: (eb) => eb.ref("excluded.branch"),
+          was_flaky: (eb) => eb.ref("excluded.was_flaky"),
+          had_failure: (eb) => eb.ref("excluded.had_failure"),
+          retry_duration_ms: (eb) => eb.ref("excluded.retry_duration_ms"),
+          retry_count: (eb) => eb.ref("excluded.retry_count"),
+          final_duration_ms: (eb) => eb.ref("excluded.final_duration_ms"),
+          start_time: (eb) => eb.ref("excluded.start_time"),
+        }),
       )
       .execute();
+
+    const testMetricsToUpdate = new Map<string, any>();
+    for (const res of chunk) {
+      const metricKey = `${res.test_id}:${res.branch}`;
+      const existing = testMetricsToUpdate.get(metricKey) || {
+        test_id: res.test_id,
+        branch: res.branch,
+        total_runs: 0,
+        flaky_runs: 0,
+        runs_with_failure: 0,
+        retry_duration_total_ms: 0,
+        retry_count_total: 0,
+        duration_total_ms: 0,
+        last_flaky_start_time: null,
+      };
+
+      existing.total_runs += 1;
+      if (res.was_flaky) {
+        existing.flaky_runs += 1;
+        if (
+          !existing.last_flaky_start_time ||
+          res.start_time > existing.last_flaky_start_time
+        ) {
+          existing.last_flaky_start_time = res.start_time;
+        }
+      }
+      if (res.had_failure) existing.runs_with_failure += 1;
+      existing.retry_duration_total_ms += res.retry_duration_ms;
+      existing.retry_count_total += res.retry_count;
+      existing.duration_total_ms += res.final_duration_ms;
+
+      testMetricsToUpdate.set(metricKey, existing);
+    }
+
+    for (const metric of testMetricsToUpdate.values()) {
+      await db
+        .insertInto("test_metrics")
+        .values(metric)
+        .onConflict((oc) =>
+          oc.columns(["test_id", "branch"]).doUpdateSet({
+            total_runs: (eb) =>
+              sql`test_metrics.total_runs + ${metric.total_runs}`,
+            flaky_runs: (eb) =>
+              sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
+            runs_with_failure: (eb) =>
+              sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
+            retry_duration_total_ms: (eb) =>
+              sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
+            retry_count_total: (eb) =>
+              sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
+            duration_total_ms: (eb) =>
+              sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
+            last_flaky_start_time: (eb) =>
+              metric.last_flaky_start_time
+                ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
+                : eb.ref("test_metrics.last_flaky_start_time"),
+          }),
+        )
+        .execute();
+    }
   }
 
-  // Bulk update runs (since Kysely update doesn't support bulk easy, we use upsert/replace pattern)
-  // Actually, for runs we have a lot of columns but we only want to update a few.
-  // We'll use a loop of updates for now as it's typically only 1 query per runId,
-  // but if we have many runs, we might want to optimize.
-  // Given we only re-ingest a handful of runs at a time, this is likely fine.
   for (const runData of runsToUpdate) {
     await db
       .updateTable("runs")
