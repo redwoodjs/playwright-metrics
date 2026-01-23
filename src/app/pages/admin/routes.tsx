@@ -1,14 +1,14 @@
 import { route, prefix } from "rwsdk/router";
 import { Reingest } from "./reingest";
-import { seedDatabase } from "@/db/seed";
+// import { seedDatabase } from "@/db/seed";
 "use server";
 
 export const adminPageRoutes = prefix("/admin", [
   route("/reingest", Reingest),
-  route("/seed", async () => {
-    await seedDatabase();
-    return new Response("Seeded!");
-  }),
+  // route("/seed", async () => {
+  //   await seedDatabase();
+  //   return new Response("Seeded!");
+  // }),
   route("/backfill", async () => {
     const stats = await backfillMetrics();
     return new Response(`Backfill complete! Processed ${stats.metricCount} test/branch pairs.`);
