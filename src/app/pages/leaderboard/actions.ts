@@ -14,82 +14,75 @@ export type LeaderboardRow = {
 };
 
 /**
- * Get recent execution results for a test (last 5 runs)
- * Returns array of "pass", "flaky", or "fail" statuses
+ * Get all unique branches from the test_metrics table
  */
-async function getRecentResults(
-  testId: string,
-  limit = 5,
-): Promise<("pass" | "flaky" | "fail" | "skip")[]> {
-  // Get the last N runs for this test
-  const maxRetry = db
-    .selectFrom("attempts as r")
-    .select((eb) => [
-      "r.run_id as run_id",
-      eb.fn.max("r.retry").as("max_retry"),
-    ])
-    .where("r.test_id", "=", testId)
-    .groupBy("r.run_id")
-    .as("mr");
-
+export async function listBranches(): Promise<string[]> {
   const rows = await db
+    .selectFrom("test_metrics")
+    .select("branch")
+    .distinct()
+    .orderBy("branch", "asc")
+    .execute();
+  return rows.map((r) => r.branch);
+}
+
+/**
+ * Get recent execution results for multiple tests in a single query
+ * Returns Map of testId -> array of "pass", "flaky", or "fail" statuses
+ */
+async function getRecentResultsBatched(
+  testIds: string[],
+  limit = 5,
+  branch?: string,
+): Promise<Map<string, ("pass" | "flaky" | "fail" | "skip")[]>> {
+  if (testIds.length === 0) return new Map();
+
+  // Optimized query using the new results columns
+  // We use the start_time index to get the most recent results quickly
+  let query = db
     .selectFrom("results as trt")
-    .innerJoin("runs as tr", "tr.id", "trt.run_id")
-    .leftJoin(maxRetry, "mr.run_id", "trt.run_id")
-    .leftJoin("attempts as rf", (join) =>
-      join
-        .onRef("rf.run_id", "=", "trt.run_id")
-        .onRef("rf.test_id", "=", "trt.test_id")
-        .onRef("rf.retry", "=", "mr.max_retry"),
-    )
-    .select((eb) => [
-      "rf.status as final_status",
-      eb
-        .exists(
-          eb
-            .selectFrom("attempts as r1")
-            .select((qb) => qb.val(1).as("one"))
-            .whereRef("r1.run_id", "=", "trt.run_id")
-            .whereRef("r1.test_id", "=", "trt.test_id")
-            .where("r1.status", "=", "failed"),
-        )
-        .as("had_failure"),
-      eb
-        .exists(
-          eb
-            .selectFrom("attempts as r2")
-            .select((qb) => qb.val(1).as("one"))
-            .whereRef("r2.run_id", "=", "trt.run_id")
-            .whereRef("r2.test_id", "=", "trt.test_id")
-            .where("r2.status", "=", "passed"),
-        )
-        .as("had_pass"),
+    .select([
+      "trt.test_id",
+      "trt.status",
+      "trt.was_flaky",
+      "trt.had_failure",
+      "trt.start_time",
     ])
-    .where("trt.test_id", "=", testId)
-    .orderBy("tr.start_time", "desc")
-    .limit(limit)
+    .where("trt.test_id", "in", testIds);
+
+  if (branch) {
+    query = query.where("trt.branch", "=", branch);
+  }
+
+  const rows = await query
+    .orderBy("trt.start_time", "desc")
+    .limit(testIds.length * limit * 15) // Fetch plenty to cover sharding/projects
     .execute();
 
-  return rows.map((r) => {
-    const hadFailure = Boolean(r.had_failure);
-    const hadPass = Boolean(r.had_pass);
-    const finalStatus = r.final_status;
+  const resultMap = new Map<string, ("pass" | "flaky" | "fail" | "skip")[]>();
+  for (const r of rows) {
+    const statuses = resultMap.get(r.test_id) || [];
+    if (statuses.length >= limit) continue;
 
-    // If both pass and fail occurred, it's flaky
-    if (hadFailure && hadPass) {
-      return "flaky";
+    let status: "pass" | "flaky" | "fail" | "skip" = "pass";
+    const hadFailure = Boolean(r.had_failure);
+    const wasFlaky = Boolean(r.was_flaky);
+
+    if (wasFlaky) {
+      status = "flaky";
+    } else if (hadFailure) {
+      status = "fail";
+    } else if (r.status === "skipped") {
+      status = "skip";
+    } else {
+      status = "pass";
     }
-    // If only failure (no pass), it's a fail
-    if (hadFailure) {
-      return "fail";
-    }
-    // If skipped
-    if (finalStatus === "skipped") {
-      return "skip";
-    }
-    // Otherwise it passed
-    return "pass";
-  });
+
+    statuses.push(status);
+    resultMap.set(r.test_id, statuses);
+  }
+
+  return resultMap;
 }
 
 /**
@@ -98,42 +91,33 @@ async function getRecentResults(
 export async function getLeaderboardData(
   limit = 50,
   sortBy: "rate" | "runs" | "waste" = "rate",
+  branch?: string,
 ): Promise<LeaderboardRow[]> {
-  // Get a larger set of potentially flaky tests to ensure we find those with high waste
-  const flakiestTests = await listFlakiestTests(200);
+  // 1. Get a larger set of potentially flaky tests from the summary table
+  const flakiestTests = await listFlakiestTests(200, branch);
 
-  // Filter for tests that are actually flaky (flaky_rate > 0)
+  // 2. Filter for tests that are actually flaky
   const onlyFlaky = flakiestTests.filter((test) => test.flaky_rate > 0);
 
-  // For each test, get recent results and calculate waste time
-  const leaderboardData: LeaderboardRow[] = await Promise.all(
-    onlyFlaky.map(async (test) => {
-      const recentResults = await getRecentResults(test.test_id, 5);
-      const wasteTimeMs = test.retry_duration_total_ms ?? 0;
+  // 3. Batched fetch of recent results for all tests at once
+  const testIds = onlyFlaky.map((t) => t.test_id);
+  const recentResultsMap = await getRecentResultsBatched(testIds, 12, branch);
 
-      return {
-        test_id: test.test_id,
-        title: test.title,
-        file: test.file,
-        flaky_rate: test.flaky_rate,
-        flaky_runs: test.flaky_runs,
-        total_runs: test.total_runs,
-        waste_time_ms: wasteTimeMs,
-        recent_results: recentResults,
-      };
-    }),
-  );
+  // 4. Transform into LeaderboardRow
+  const leaderboardData: LeaderboardRow[] = onlyFlaky.map((test) => {
+    return {
+      test_id: test.test_id,
+      title: test.title,
+      file: test.file,
+      flaky_rate: test.flaky_rate,
+      flaky_runs: test.flaky_runs,
+      total_runs: test.total_runs,
+      waste_time_ms: test.retry_duration_total_ms ?? 0,
+      recent_results: recentResultsMap.get(test.test_id) || [],
+    };
+  });
 
-  // Filter out 100% error rate (not flaky if they always fail)
-  // listFlakiestTests already calculates flaky_runs based on having both pass AND fail.
-  // But we want to be explicit here if needed.
-  // The listFlakiestTests already filtered for flaky_rate > 0 in the caller,
-  // and flaky_rate is flaky_runs / total_runs.
-  // So if flaky_rate > 0, it means it must have at least one flaky run (pass and fail).
-  // A test with 100% error rate (only fails, no passes) would have flaky_runs = 0 and flaky_rate = 0.
-  // So they are already excluded by `onlyFlaky`.
-
-  // Sort based on requested metric
+  // 5. Sort based on requested metric
   leaderboardData.sort((a, b) => {
     if (sortBy === "waste") {
       return b.waste_time_ms - a.waste_time_ms;

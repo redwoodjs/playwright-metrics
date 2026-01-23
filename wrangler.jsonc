@@ -1,22 +1,19 @@
 {
   // Schema reference for wrangler configuration
   "$schema": "node_modules/wrangler/config-schema.json",
-
   // Name of your worker
   "name": "playwright-metrics",
-
   // Entry point for your worker
   "main": "src/worker.tsx",
-
   // Compatibility settings
   "compatibility_date": "2025-08-21",
-  "compatibility_flags": ["nodejs_compat"],
-
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   // Assets configuration
   "assets": {
     "binding": "ASSETS"
   },
-
   "r2_buckets": [
     {
       "bucket_name": "play-report",
@@ -35,14 +32,15 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Database"]
+      "new_sqlite_classes": [
+        "Database"
+      ]
     }
   ],
   // Observability settings
   "observability": {
     "enabled": true
   },
-
   "queues": {
     "producers": [
       {

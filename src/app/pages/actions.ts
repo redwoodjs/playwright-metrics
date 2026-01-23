@@ -274,139 +274,32 @@ export type FlakiestRow = {
   bucket?: "stable" | "suspicious" | "flaky" | "critical";
 };
 
-export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
-  // Distinct executions per (test, run) from the canonical source of truth
-  const execRuns = db
-    .selectFrom("attempts as r")
-    .select(["r.test_id as test_id", "r.run_id as run_id"])
-    .groupBy(["r.test_id", "r.run_id"])
-    .as("er");
+export async function listFlakiestTests(
+  limit = 50,
+  branch?: string,
+): Promise<FlakiestRow[]> {
+  let query = db
+    .selectFrom("test_metrics as m")
+    .innerJoin("specs as t", "t.id", "m.test_id");
 
-  // Runs where the test had any failure
-  const failRuns = db
-    .selectFrom("attempts as r")
-    .select(["r.test_id as test_id", "r.run_id as run_id"])
-    .where("r.status", "=", "failed")
-    .groupBy(["r.test_id", "r.run_id"])
-    .as("fr");
+  if (branch) {
+    query = query.where("m.branch", "=", branch);
+  }
 
-  // Runs where the test had any pass
-  const passRuns = db
-    .selectFrom("attempts as r")
-    .select(["r.test_id as test_id", "r.run_id as run_id"])
-    .where("r.status", "=", "passed")
-    .groupBy(["r.test_id", "r.run_id"])
-    .as("pr");
-
-  // Aggregate totals
-  const totalAgg = db
-    .selectFrom(execRuns)
-    .select((eb) => ["er.test_id as test_id", eb.fn.countAll().as("total_runs")])
-    .groupBy("er.test_id")
-    .as("tot");
-
-  const failAgg = db
-    .selectFrom(failRuns)
-    .select((eb) => ["fr.test_id as test_id", eb.fn.countAll().as("runs_with_failure")])
-    .groupBy("fr.test_id")
-    .as("fa");
-
-  const flakyAgg = db
-    .selectFrom(failRuns)
-    .innerJoin(passRuns, (join) =>
-      join
-        .onRef("fr.test_id", "=", "pr.test_id")
-        .onRef("fr.run_id", "=", "pr.run_id"),
-    )
-    .select((eb) => ["fr.test_id as test_id", eb.fn.countAll().as("flaky_runs")])
-    .groupBy("fr.test_id")
-    .as("fka");
-
-  // Final attempt durations avg per test
-  const finalDurations = db
-    .selectFrom("attempts as r")
-    .select([
-      "r.test_id as test_id",
-      "r.run_id as run_id",
-      "r.duration_ms as duration_ms",
-    ])
-    .innerJoin(
-      db
-        .selectFrom("attempts as rmax")
-        .select((eb) => [
-          "rmax.test_id as test_id",
-          "rmax.run_id as run_id",
-          eb.fn.max("rmax.retry").as("max_retry"),
-        ])
-        .groupBy(["rmax.test_id", "rmax.run_id"])
-        .as("mx"),
-      (join) =>
-        join
-          .onRef("mx.test_id", "=", "r.test_id")
-          .onRef("mx.run_id", "=", "r.run_id")
-          .onRef("mx.max_retry", "=", "r.retry"),
-    )
-    .as("fd");
-
-  const durationAgg = db
-    .selectFrom(finalDurations)
-    .select((eb) => ["fd.test_id as test_id", eb.fn.avg("fd.duration_ms").as("mean_duration_ms")])
-    .groupBy("fd.test_id")
-    .as("da");
-
-  // Retry cost per test (time + count)
-  const retryAgg = db
-    .selectFrom("attempts as r")
-    .where("r.retry", ">", 0)
+  const rows = await query
     .select((eb) => [
-      "r.test_id as test_id",
-      eb.fn.sum("r.duration_ms").as("retry_duration_total_ms"),
-      eb.fn.countAll().as("retry_count_total"),
+      "m.test_id",
+      "t.title",
+      "t.file",
+      eb.fn.sum<number>("m.total_runs").as("total_runs"),
+      eb.fn.sum<number>("m.flaky_runs").as("flaky_runs"),
+      eb.fn.sum<number>("m.runs_with_failure").as("runs_with_failure"),
+      eb.fn.sum<number>("m.retry_duration_total_ms").as("retry_duration_total_ms"),
+      eb.fn.sum<number>("m.retry_count_total").as("retry_count_total"),
+      eb.fn.sum<number>("m.duration_total_ms").as("duration_total_ms"),
+      eb.fn.max("m.last_flaky_start_time").as("last_flaky_start_time"),
     ])
-    .groupBy("r.test_id")
-    .as("ra");
-
-  // Last flaky occurrence time per test (max start_time of any flaky run)
-  const flakyRunsWithTime = db
-    .selectFrom(failRuns)
-    .innerJoin(passRuns, (join) =>
-      join
-        .onRef("fr.test_id", "=", "pr.test_id")
-        .onRef("fr.run_id", "=", "pr.run_id"),
-    )
-    .innerJoin("runs as tr", "tr.id", "fr.run_id")
-    .select(["fr.test_id as test_id", "tr.start_time as start_time"])
-    .as("frt");
-
-  const lastFlakyAgg = db
-    .selectFrom(flakyRunsWithTime)
-    .select((eb) => [
-      "frt.test_id as test_id",
-      eb.fn.max("frt.start_time").as("last_flaky_start_time"),
-    ])
-    .groupBy("frt.test_id")
-    .as("lfa");
-
-  const rows = await db
-    .selectFrom(totalAgg)
-    .leftJoin("specs as t", "t.id", "tot.test_id")
-    .leftJoin(failAgg, "fa.test_id", "tot.test_id")
-    .leftJoin(flakyAgg, "fka.test_id", "tot.test_id")
-    .leftJoin(durationAgg, "da.test_id", "tot.test_id")
-    .leftJoin(retryAgg, "ra.test_id", "tot.test_id")
-    .leftJoin(lastFlakyAgg, "lfa.test_id", "tot.test_id")
-    .select([
-      "tot.test_id as test_id",
-      "t.title as title",
-      "t.file as file",
-      "tot.total_runs as total_runs",
-      "fa.runs_with_failure as runs_with_failure",
-      "fka.flaky_runs as flaky_runs",
-      "da.mean_duration_ms as mean_duration_ms",
-      "ra.retry_duration_total_ms as retry_duration_total_ms",
-      "ra.retry_count_total as retry_count_total",
-      "lfa.last_flaky_start_time as last_flaky_start_time",
-    ])
+    .groupBy(["m.test_id", "t.title", "t.file"])
     .execute();
 
   const mapped = rows.map((r) => {
@@ -418,6 +311,7 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
     if (flaky_rate >= 0.2) bucket = "critical";
     else if (flaky_rate >= 0.05) bucket = "flaky";
     else if (flaky_rate >= 0.01) bucket = "suspicious";
+
     return {
       test_id: r.test_id,
       title: r.title,
@@ -426,32 +320,18 @@ export async function listFlakiestTests(limit = 50): Promise<FlakiestRow[]> {
       flaky_runs: flaky,
       runs_with_failure: instab,
       flaky_rate,
-      fail_rate: total > 0 ? instab / total : 0, // Note: "instability rate" (any failure)
-      mean_duration_ms:
-        r.mean_duration_ms != null
-          ? Number(r.mean_duration_ms as unknown as number)
-          : null,
-      retry_duration_total_ms:
-        r.retry_duration_total_ms != null
-          ? Number(r.retry_duration_total_ms as unknown as number)
-          : 0,
-      retry_count_total:
-        r.retry_count_total != null
-          ? Number(r.retry_count_total as unknown as number)
-          : 0,
+      fail_rate: total > 0 ? instab / total : 0,
+      mean_duration_ms: total > 0 ? Number(r.duration_total_ms) / total : null,
+      retry_duration_total_ms: Number(r.retry_duration_total_ms ?? 0),
+      retry_count_total: Number(r.retry_count_total ?? 0),
       last_flaky_start_time: r.last_flaky_start_time ?? null,
       bucket,
     } as FlakiestRow;
   });
 
   // Filters out "pure failures" and "consistent flakes"
-  // If it fails 100% of the time, it's a failure, not a flaky test.
   const onlyFlaky = mapped.filter((r) => r.flaky_runs > 0 && r.fail_rate < 1);
 
-  // Default ordering everywhere:
-  // 1. Highest flaky_rate
-  // 2. Then highest flaky_runs
-  // 3. Then highest total_runs
   onlyFlaky.sort((a, b) => {
     if (b.flaky_rate !== a.flaky_rate) return b.flaky_rate - a.flaky_rate;
     if (b.flaky_runs !== a.flaky_runs) return b.flaky_runs - a.flaky_runs;
