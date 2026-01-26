@@ -150,7 +150,7 @@ export async function ingestRawReport(
   // Bulk inserts with chunking
   // Cloudflare D1 has a hard limit of 100 variables per statement.
   if (specs.length > 0) {
-    const CHUNK_SIZE = 20; // 4 columns * 20 = 80 variables
+    const CHUNK_SIZE = 15; // 4 columns * 15 = 60 variables
     for (let i = 0; i < specs.length; i += CHUNK_SIZE) {
       const chunk = specs.slice(i, i + CHUNK_SIZE);
       await db
@@ -162,7 +162,7 @@ export async function ingestRawReport(
   }
 
   if (results.length > 0) {
-    const CHUNK_SIZE = 15; // 6 columns * 15 = 90 variables
+    const CHUNK_SIZE = 10; // 6 columns * 10 = 60 variables
     for (let i = 0; i < results.length; i += CHUNK_SIZE) {
       const chunk = results.slice(i, i + CHUNK_SIZE);
       await db
@@ -178,7 +178,7 @@ export async function ingestRawReport(
   }
 
   if (attempts.length > 0) {
-    const CHUNK_SIZE = 10; // 10 columns * 10 = 100 variables
+    const CHUNK_SIZE = 5; // 10 columns * 5 = 50 variables
     for (let i = 0; i < attempts.length; i += CHUNK_SIZE) {
       const chunk = attempts.slice(i, i + CHUNK_SIZE);
       await db

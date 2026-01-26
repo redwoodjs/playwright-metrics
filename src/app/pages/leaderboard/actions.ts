@@ -37,30 +37,42 @@ async function getRecentResultsBatched(
 ): Promise<Map<string, ("pass" | "flaky" | "fail" | "skip")[]>> {
   if (testIds.length === 0) return new Map();
 
-  // Optimized query using the new results columns
-  // We use the start_time index to get the most recent results quickly
-  let query = db
-    .selectFrom("results as trt")
-    .select([
-      "trt.test_id",
-      "trt.status",
-      "trt.was_flaky",
-      "trt.had_failure",
-      "trt.start_time",
-    ])
-    .where("trt.test_id", "in", testIds);
-
-  if (branch) {
-    query = query.where("trt.branch", "=", branch);
+  // Cloudflare D1 has a limit of 100 variables per query.
+  // We chunk the testIds to avoid hitting this limit.
+  const CHUNK_SIZE = 50;
+  const chunks = [];
+  for (let i = 0; i < testIds.length; i += CHUNK_SIZE) {
+    chunks.push(testIds.slice(i, i + CHUNK_SIZE));
   }
 
-  const rows = await query
-    .orderBy("trt.start_time", "desc")
-    .limit(testIds.length * limit * 15) // Fetch plenty to cover sharding/projects
-    .execute();
+  const results = await Promise.all(
+    chunks.map(async (chunkIds) => {
+      let query = db
+        .selectFrom("results as trt")
+        .select([
+          "trt.test_id",
+          "trt.status",
+          "trt.was_flaky",
+          "trt.had_failure",
+          "trt.start_time",
+        ])
+        .where("trt.test_id", "in", chunkIds);
+
+      if (branch) {
+        query = query.where("trt.branch", "=", branch);
+      }
+
+      return query
+        .orderBy("trt.start_time", "desc")
+        .limit(chunkIds.length * limit * 15)
+        .execute();
+    })
+  );
+
+  const flatRows = results.flat();
 
   const resultMap = new Map<string, ("pass" | "flaky" | "fail" | "skip")[]>();
-  for (const r of rows) {
+  for (const r of flatRows) {
     const statuses = resultMap.get(r.test_id) || [];
     if (statuses.length >= limit) continue;
 
