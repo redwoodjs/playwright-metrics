@@ -1,8 +1,7 @@
-import { getDb, sql } from "@/db";
+import { db, sql } from "@/db";
 import { computeRunMetrics } from "./ingestion";
 
-export async function seedDatabase(env: Env) {
-  const db = getDb(env);
+export async function seedDatabase() {
   // Clear existing data (optional, but good for predictable seeds)
   await sql`DELETE FROM attempts`.execute(db);
   await sql`DELETE FROM results`.execute(db);
@@ -105,7 +104,7 @@ export async function seedDatabase(env: Env) {
     }
 
     // 4. Compute metrics for this run
-    await computeRunMetrics(env, runId);
+    await computeRunMetrics(runId);
   }
 
   console.log("Seeding complete!");

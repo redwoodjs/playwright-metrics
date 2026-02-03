@@ -1,4 +1,5 @@
-import { getDb, sql } from "@/db";
+import { db, sql } from "@/db";
+import { env } from "cloudflare:workers";
 import { logIngestionTimeline } from "./ingestion-logger";
 
 export type IngestionMetadata = {
@@ -33,7 +34,6 @@ export type IngestionMetadata = {
  * Log an ingestion-related event to R2.
  */
 export async function logIngestionEvent(
-  env: Env,
   params: {
     runId?: string | null;
     level: "info" | "warn" | "error";
@@ -78,14 +78,12 @@ export async function logIngestionEvent(
  * Does NOT compute metrics.
  */
 export async function ingestRawReport(
-  env: Env,
   metadata: IngestionMetadata,
   reportJson: any
 ) {
-  const db = getDb(env);
   const { runId } = metadata;
 
-  await logIngestionEvent(env, {
+  await logIngestionEvent({
     runId,
     level: "info",
     message: `Starting ingestion for run ${runId}`,
@@ -96,7 +94,7 @@ export async function ingestRawReport(
     },
   });
 
-  await logIngestionTimeline(env, {
+  await logIngestionTimeline({
     runId,
     type: "ingest_start",
     message: `Started ingesting raw report`,
@@ -215,7 +213,7 @@ export async function ingestRawReport(
     processSuite(suite);
   }
 
-  await logIngestionEvent(env, {
+  await logIngestionEvent({
     runId,
     level: "info",
     message: `Processed report JSON: Found ${specs.length} specs, ${results.length} results, ${attempts.length} attempts`,
@@ -271,13 +269,13 @@ export async function ingestRawReport(
     }
   }
 
-  await logIngestionEvent(env, {
+  await logIngestionEvent({
     runId,
     level: "info",
     message: `Raw report ingestion completed for run ${runId}`,
   });
 
-  await logIngestionTimeline(env, {
+  await logIngestionTimeline({
     runId,
     type: "ingest_complete",
     message: `Ingestion completed`,
@@ -291,8 +289,7 @@ export async function ingestRawReport(
 /**
  * Computes metrics for a given run based on attempts entries.
  */
-export async function computeRunMetrics(env: Env, runId: string) {
-  const db = getDb(env);
+export async function computeRunMetrics(runId: string) {
   const run = await db
     .selectFrom("runs")
     .selectAll()
@@ -300,7 +297,7 @@ export async function computeRunMetrics(env: Env, runId: string) {
     .executeTakeFirst();
 
   if (!run) {
-    await logIngestionEvent(env, {
+    await logIngestionEvent({
       runId,
       level: "error",
       message: `Cannot compute metrics: Run ${runId} not found in database`,
@@ -308,7 +305,7 @@ export async function computeRunMetrics(env: Env, runId: string) {
     return;
   }
 
-  await logIngestionEvent(env, {
+  await logIngestionEvent({
     runId,
     level: "info",
     message: `Computing metrics for run ${runId}`,
@@ -323,7 +320,7 @@ export async function computeRunMetrics(env: Env, runId: string) {
     .execute();
 
   if (attempts.length === 0) {
-    await logIngestionEvent(env, {
+    await logIngestionEvent({
       runId,
       level: "warn",
       message: `No attempts found for run ${runId}. Metrics will be zeroed.`,
@@ -532,7 +529,7 @@ export async function computeRunMetrics(env: Env, runId: string) {
     .where("id", "=", runId)
     .execute();
 
-  await logIngestionEvent(env, {
+  await logIngestionEvent({
     runId,
     level: "info",
     message: `Metrics computation completed for run ${runId}`,
@@ -550,10 +547,8 @@ export async function computeRunMetrics(env: Env, runId: string) {
  * This is more efficient than calling ingestRawReport for each report.
  */
 export async function ingestReportsBatch(
-  env: Env,
   reports: { metadata: IngestionMetadata; reportJson: any }[]
 ) {
-  const db = getDb(env);
   if (reports.length === 0) return;
 
   const runs: any[] = [];
@@ -717,8 +712,7 @@ export async function ingestReportsBatch(
 /**
  * Computes metrics for multiple runs efficiently.
  */
-export async function computeMultipleRunsMetrics(env: Env, runIds: string[]) {
-  const db = getDb(env);
+export async function computeMultipleRunsMetrics(runIds: string[]) {
   if (runIds.length === 0) return;
 
   const runs = await db

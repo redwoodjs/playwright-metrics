@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers";
+
 export type IngestionEventType = "upload" | "ingest_start" | "ingest_complete" | "error";
 
 export type IngestionEvent = {
@@ -9,7 +11,6 @@ export type IngestionEvent = {
 };
 
 export async function logIngestionTimeline(
-  env: Env,
   event: {
     runId: string | null;
     type: IngestionEventType;

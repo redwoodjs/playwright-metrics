@@ -10,7 +10,7 @@ import { RunDetail } from "@/app/pages/run-detail";
 import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
 import { TestDetail } from "@/app/pages/spec-detail/spec-detail";
 import { RepoSpecs } from "@/app/pages/repo-specs";
-import { adminApiRoutes, adminPageRoutes } from "@/app/pages/admin/routes";
+import { adminPageRoutes } from "@/app/pages/admin/routes";
 import { env, waitUntil } from "cloudflare:workers";
 import { ingestRawReport, computeRunMetrics, type IngestionMetadata } from "./db/ingestion";
 import { logIngestionTimeline } from "./db/ingestion-logger";
@@ -112,7 +112,7 @@ const app = defineApp([
       customMetadata,
     });
 
-    await logIngestionTimeline(env, {
+    await logIngestionTimeline({
       runId,
       type: "upload",
       message: `File uploaded to ${r2ObjectKey}`,
@@ -144,7 +144,7 @@ const app = defineApp([
       }
     );
   }),
-  ...adminApiRoutes,
+  ...adminPageRoutes,
 ]);
 
 export default {
@@ -213,8 +213,8 @@ export default {
             };
           }
 
-          await ingestRawReport(env, finalMetadata, reportJson);
-          await computeRunMetrics(env, finalMetadata.runId);
+          await ingestRawReport(finalMetadata, reportJson);
+          await computeRunMetrics(finalMetadata.runId);
           console.log(`[Queue] Successfully ingested ${finalMetadata.runId}`);
         } catch (error) {
           console.error(`[Queue] Error ingesting ${r2ObjectKey}:`, error);
