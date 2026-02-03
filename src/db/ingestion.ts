@@ -1,4 +1,5 @@
 import { db, sql } from "@/db";
+import { env } from "cloudflare:workers";
 
 export type IngestionMetadata = {
   runId: string;
@@ -29,6 +30,47 @@ export type IngestionMetadata = {
 };
 
 /**
+ * Log an ingestion-related event to R2.
+ */
+export async function logIngestionEvent(params: {
+  runId?: string | null;
+  level: "info" | "warn" | "error";
+  message: string;
+  context?: any;
+}) {
+  const timestamp = new Date().toISOString();
+  const runId = params.runId ?? "unknown";
+  const logId = crypto.randomUUID();
+  const logKey = `logs/${runId}/${timestamp.replace(/[:.]/g, "-")}-${logId}.json`;
+
+  const logData = {
+    runId: params.runId,
+    level: params.level,
+    message: params.message,
+    context: params.context,
+    timestamp,
+  };
+
+  try {
+    if (env.R2) {
+      await env.R2.put(logKey, JSON.stringify(logData), {
+        httpMetadata: { contentType: "application/json" },
+        customMetadata: {
+          runId: runId,
+          level: params.level,
+        },
+      });
+    } else {
+      console.warn("[logIngestionEvent] R2 binding not found, logging to console only.");
+      console.log(JSON.stringify(logData));
+    }
+  } catch (err) {
+    console.error("[logIngestionEvent] Failed to log to R2:", err);
+    console.log(JSON.stringify(logData));
+  }
+}
+
+/**
  * Ingests the raw report data into the database.
  * Does NOT compute metrics.
  */
@@ -37,6 +79,17 @@ export async function ingestRawReport(
   reportJson: any
 ) {
   const { runId } = metadata;
+
+  await logIngestionEvent({
+    runId,
+    level: "info",
+    message: `Starting ingestion for run ${runId}`,
+    context: {
+      repo: metadata.repo,
+      branch: metadata.branch,
+      commit: metadata.commit,
+    },
+  });
 
   // Insert test run using upsert to avoid overwriting existing shard data
   // but updating metadata if it changed.
@@ -147,6 +200,12 @@ export async function ingestRawReport(
     processSuite(suite);
   }
 
+  await logIngestionEvent({
+    runId,
+    level: "info",
+    message: `Processed report JSON: Found ${specs.length} specs, ${results.length} results, ${attempts.length} attempts`,
+  });
+
   // Bulk inserts with chunking
   // Cloudflare D1 has a hard limit of 100 variables per statement.
   if (specs.length > 0) {
@@ -196,6 +255,12 @@ export async function ingestRawReport(
         .execute();
     }
   }
+
+  await logIngestionEvent({
+    runId,
+    level: "info",
+    message: `Raw report ingestion completed for run ${runId}`,
+  });
 }
 
 /**
@@ -207,7 +272,21 @@ export async function computeRunMetrics(runId: string) {
     .selectAll()
     .where("id", "=", runId)
     .executeTakeFirst();
-  if (!run) return;
+
+  if (!run) {
+    await logIngestionEvent({
+      runId,
+      level: "error",
+      message: `Cannot compute metrics: Run ${runId} not found in database`,
+    });
+    return;
+  }
+
+  await logIngestionEvent({
+    runId,
+    level: "info",
+    message: `Computing metrics for run ${runId}`,
+  });
 
   const branch = run.branch;
 
@@ -217,7 +296,14 @@ export async function computeRunMetrics(runId: string) {
     .where("run_id", "=", runId)
     .execute();
 
-  if (attempts.length === 0) return;
+  if (attempts.length === 0) {
+    await logIngestionEvent({
+      runId,
+      level: "warn",
+      message: `No attempts found for run ${runId}. Metrics will be zeroed.`,
+    });
+    return;
+  }
 
   // Compute earliest start and latest end
   let earliestStart: string | null = null;
@@ -414,6 +500,18 @@ export async function computeRunMetrics(runId: string) {
     })
     .where("id", "=", runId)
     .execute();
+
+  await logIngestionEvent({
+    runId,
+    level: "info",
+    message: `Metrics computation completed for run ${runId}`,
+    context: {
+      expected: expectedCount,
+      flaky: flakyCount,
+      unexpected: unexpectedCount,
+      skipped: skippedCount,
+    },
+  });
 }
 
 /**

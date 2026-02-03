@@ -6,8 +6,15 @@ import type {
   Attempt,
 } from "@/db";
 
-export async function listRuns(filters?: { repo?: string; branch?: string }): Promise<Run[]> {
-  let query = db
+export type RunOverview = Run & { shard_count: number };
+
+export async function listRuns(filters?: {
+  repo?: string;
+  branch?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ runs: RunOverview[]; totalCount: number }> {
+  let baseQuery = db
     .selectFrom("runs")
     .select((eb) => [
       eb.fn.max("id").as("id"),
@@ -26,26 +33,42 @@ export async function listRuns(filters?: { repo?: string; branch?: string }): Pr
     ]);
 
   if (filters?.repo) {
-    query = query.where("repo", "like", `${filters.repo}%`);
+    baseQuery = baseQuery.where("repo", "like", `${filters.repo}%`);
   }
   if (filters?.branch) {
-    query = query.where("branch", "=", filters.branch);
+    baseQuery = baseQuery.where("branch", "=", filters.branch);
   }
 
-  const rows = await query
-    .groupBy(["repo", "commit_hash", "pr_user"])
-    .orderBy("start_time", "desc")
-    .execute();
+  const groupedQuery = baseQuery.groupBy(["repo", "commit_hash", "pr_user"]);
 
-  return rows.map((r) => ({
-    ...r,
+  const limit = filters?.limit ?? 50;
+  const offset = filters?.offset ?? 0;
+
+  const [rows, countResult] = await Promise.all([
+    groupedQuery
+      .orderBy("start_time", "desc")
+      .limit(limit)
+      .offset(offset)
+      .execute(),
+    db
+      .selectFrom(groupedQuery.as("subq"))
+      .select((eb) => eb.fn.countAll().as("count"))
+      .executeTakeFirst(),
+  ]);
+
+  const totalCount = Number(countResult?.count ?? 0);
+
+  const runs = rows.map((r) => ({
+    ...(r as any),
     duration_ms: Number(r.duration_ms ?? 0),
     expected_count: Number(r.expected_count ?? 0),
     skipped_count: Number(r.skipped_count ?? 0),
     flaky_count: Number(r.flaky_count ?? 0),
     unexpected_count: Number(r.unexpected_count ?? 0),
     shard_count: Number(r.shard_count ?? 1),
-  })) as any as Run[];
+  })) as RunOverview[];
+
+  return { runs, totalCount };
 }
 
 export async function getRun(commitHash: string): Promise<Run | undefined> {
@@ -896,7 +919,7 @@ export async function listRunNewFlakies(
     .select("r_prior.id")
     .where("r_prior.start_time", "<", run.start_time!)
     .orderBy("r_prior.start_time", "desc")
-    .limit(lookbackRuns * (run.shard_count ?? 1));
+    .limit(lookbackRuns * (run.shard_total ?? 1));
 
   // Flaky tests in this run (across all shards)
   const failNow = db

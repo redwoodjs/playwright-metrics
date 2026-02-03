@@ -1,10 +1,12 @@
 import { route, prefix } from "rwsdk/router";
 import { Reingest } from "./reingest";
+import { Logs } from "./logs";
 // import { seedDatabase } from "@/db/seed";
 "use server";
 
 export const adminPageRoutes = prefix("/admin", [
   route("/reingest", Reingest),
+  route("/logs", Logs),
   // route("/seed", async () => {
   //   await seedDatabase();
   //   return new Response("Seeded!");
