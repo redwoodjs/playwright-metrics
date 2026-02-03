@@ -80,7 +80,11 @@ export type Run = AppDatabase["runs"];
 export type Result = AppDatabase["results"];
 export type Attempt = AppDatabase["attempts"];
 
-export const db = createDb<AppDatabase>(
-  env.DATABASE,
-  "metrics",
-);
+export const getDb = (env: Env) => {
+  return createDb<AppDatabase>(
+    env.DATABASE,
+    "metrics",
+  );
+};
+
+export const db = getDb(env);

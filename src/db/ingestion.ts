@@ -1,5 +1,4 @@
-import { db, sql } from "@/db";
-import { env } from "cloudflare:workers";
+import { getDb, sql } from "@/db";
 import { logIngestionTimeline } from "./ingestion-logger";
 
 export type IngestionMetadata = {
@@ -33,12 +32,15 @@ export type IngestionMetadata = {
 /**
  * Log an ingestion-related event to R2.
  */
-export async function logIngestionEvent(params: {
-  runId?: string | null;
-  level: "info" | "warn" | "error";
-  message: string;
-  context?: any;
-}) {
+export async function logIngestionEvent(
+  env: Env,
+  params: {
+    runId?: string | null;
+    level: "info" | "warn" | "error";
+    message: string;
+    context?: any;
+  }
+) {
   const timestamp = new Date().toISOString();
   const runId = params.runId ?? "unknown";
   const logId = crypto.randomUUID();
@@ -76,12 +78,14 @@ export async function logIngestionEvent(params: {
  * Does NOT compute metrics.
  */
 export async function ingestRawReport(
+  env: Env,
   metadata: IngestionMetadata,
   reportJson: any
 ) {
+  const db = getDb(env);
   const { runId } = metadata;
 
-  await logIngestionEvent({
+  await logIngestionEvent(env, {
     runId,
     level: "info",
     message: `Starting ingestion for run ${runId}`,
@@ -92,7 +96,7 @@ export async function ingestRawReport(
     },
   });
 
-  await logIngestionTimeline({
+  await logIngestionTimeline(env, {
     runId,
     type: "ingest_start",
     message: `Started ingesting raw report`,
@@ -211,7 +215,7 @@ export async function ingestRawReport(
     processSuite(suite);
   }
 
-  await logIngestionEvent({
+  await logIngestionEvent(env, {
     runId,
     level: "info",
     message: `Processed report JSON: Found ${specs.length} specs, ${results.length} results, ${attempts.length} attempts`,
@@ -267,13 +271,13 @@ export async function ingestRawReport(
     }
   }
 
-  await logIngestionEvent({
+  await logIngestionEvent(env, {
     runId,
     level: "info",
     message: `Raw report ingestion completed for run ${runId}`,
   });
 
-  await logIngestionTimeline({
+  await logIngestionTimeline(env, {
     runId,
     type: "ingest_complete",
     message: `Ingestion completed`,
@@ -287,7 +291,8 @@ export async function ingestRawReport(
 /**
  * Computes metrics for a given run based on attempts entries.
  */
-export async function computeRunMetrics(runId: string) {
+export async function computeRunMetrics(env: Env, runId: string) {
+  const db = getDb(env);
   const run = await db
     .selectFrom("runs")
     .selectAll()
@@ -295,7 +300,7 @@ export async function computeRunMetrics(runId: string) {
     .executeTakeFirst();
 
   if (!run) {
-    await logIngestionEvent({
+    await logIngestionEvent(env, {
       runId,
       level: "error",
       message: `Cannot compute metrics: Run ${runId} not found in database`,
@@ -303,7 +308,7 @@ export async function computeRunMetrics(runId: string) {
     return;
   }
 
-  await logIngestionEvent({
+  await logIngestionEvent(env, {
     runId,
     level: "info",
     message: `Computing metrics for run ${runId}`,
@@ -318,7 +323,7 @@ export async function computeRunMetrics(runId: string) {
     .execute();
 
   if (attempts.length === 0) {
-    await logIngestionEvent({
+    await logIngestionEvent(env, {
       runId,
       level: "warn",
       message: `No attempts found for run ${runId}. Metrics will be zeroed.`,
@@ -476,31 +481,36 @@ export async function computeRunMetrics(runId: string) {
       testMetricsToUpdate.set(metricKey, existing);
     }
 
-    for (const metric of testMetricsToUpdate.values()) {
-      await db
-        .insertInto("test_metrics")
-        .values(metric)
-        .onConflict((oc) =>
-          oc.columns(["test_id", "branch"]).doUpdateSet({
-            total_runs: (eb) =>
-              sql`test_metrics.total_runs + ${metric.total_runs}`,
-            flaky_runs: (eb) =>
-              sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
-            runs_with_failure: (eb) =>
-              sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
-            retry_duration_total_ms: (eb) =>
-              sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
-            retry_count_total: (eb) =>
-              sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
-            duration_total_ms: (eb) =>
-              sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
-            last_flaky_start_time: (eb) =>
-              metric.last_flaky_start_time
-                ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
-                : eb.ref("test_metrics.last_flaky_start_time"),
-          }),
-        )
-        .execute();
+    const metricsToUpdate = Array.from(testMetricsToUpdate.values());
+    const METRIC_CHUNK = 5;
+    for (let i = 0; i < metricsToUpdate.length; i += METRIC_CHUNK) {
+      const chunk = metricsToUpdate.slice(i, i + METRIC_CHUNK);
+      for (const metric of chunk) {
+        await db
+          .insertInto("test_metrics")
+          .values(metric)
+          .onConflict((oc) =>
+            oc.columns(["test_id", "branch"]).doUpdateSet({
+              total_runs: (eb) =>
+                sql`test_metrics.total_runs + ${metric.total_runs}`,
+              flaky_runs: (eb) =>
+                sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
+              runs_with_failure: (eb) =>
+                sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
+              retry_duration_total_ms: (eb) =>
+                sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
+              retry_count_total: (eb) =>
+                sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
+              duration_total_ms: (eb) =>
+                sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
+              last_flaky_start_time: (eb) =>
+                metric.last_flaky_start_time
+                  ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
+                  : eb.ref("test_metrics.last_flaky_start_time"),
+            }),
+          )
+          .execute();
+      }
     }
   }
 
@@ -522,7 +532,7 @@ export async function computeRunMetrics(runId: string) {
     .where("id", "=", runId)
     .execute();
 
-  await logIngestionEvent({
+  await logIngestionEvent(env, {
     runId,
     level: "info",
     message: `Metrics computation completed for run ${runId}`,
@@ -540,8 +550,10 @@ export async function computeRunMetrics(runId: string) {
  * This is more efficient than calling ingestRawReport for each report.
  */
 export async function ingestReportsBatch(
+  env: Env,
   reports: { metadata: IngestionMetadata; reportJson: any }[]
 ) {
+  const db = getDb(env);
   if (reports.length === 0) return;
 
   const runs: any[] = [];
@@ -705,7 +717,8 @@ export async function ingestReportsBatch(
 /**
  * Computes metrics for multiple runs efficiently.
  */
-export async function computeMultipleRunsMetrics(runIds: string[]) {
+export async function computeMultipleRunsMetrics(env: Env, runIds: string[]) {
+  const db = getDb(env);
   if (runIds.length === 0) return;
 
   const runs = await db
@@ -900,31 +913,36 @@ export async function computeMultipleRunsMetrics(runIds: string[]) {
       testMetricsToUpdate.set(metricKey, existing);
     }
 
-    for (const metric of testMetricsToUpdate.values()) {
-      await db
-        .insertInto("test_metrics")
-        .values(metric)
-        .onConflict((oc) =>
-          oc.columns(["test_id", "branch"]).doUpdateSet({
-            total_runs: (eb) =>
-              sql`test_metrics.total_runs + ${metric.total_runs}`,
-            flaky_runs: (eb) =>
-              sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
-            runs_with_failure: (eb) =>
-              sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
-            retry_duration_total_ms: (eb) =>
-              sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
-            retry_count_total: (eb) =>
-              sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
-            duration_total_ms: (eb) =>
-              sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
-            last_flaky_start_time: (eb) =>
-              metric.last_flaky_start_time
-                ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
-                : eb.ref("test_metrics.last_flaky_start_time"),
-          }),
-        )
-        .execute();
+    const metricsToUpdate = Array.from(testMetricsToUpdate.values());
+    const METRIC_CHUNK = 5;
+    for (let i = 0; i < metricsToUpdate.length; i += METRIC_CHUNK) {
+      const chunkMetrics = metricsToUpdate.slice(i, i + METRIC_CHUNK);
+      for (const metric of chunkMetrics) {
+        await db
+          .insertInto("test_metrics")
+          .values(metric)
+          .onConflict((oc) =>
+            oc.columns(["test_id", "branch"]).doUpdateSet({
+              total_runs: (eb) =>
+                sql`test_metrics.total_runs + ${metric.total_runs}`,
+              flaky_runs: (eb) =>
+                sql`test_metrics.flaky_runs + ${metric.flaky_runs}`,
+              runs_with_failure: (eb) =>
+                sql`test_metrics.runs_with_failure + ${metric.runs_with_failure}`,
+              retry_duration_total_ms: (eb) =>
+                sql`test_metrics.retry_duration_total_ms + ${metric.retry_duration_total_ms}`,
+              retry_count_total: (eb) =>
+                sql`test_metrics.retry_count_total + ${metric.retry_count_total}`,
+              duration_total_ms: (eb) =>
+                sql`test_metrics.duration_total_ms + ${metric.duration_total_ms}`,
+              last_flaky_start_time: (eb) =>
+                metric.last_flaky_start_time
+                  ? sql`MAX(COALESCE(test_metrics.last_flaky_start_time, ''), ${metric.last_flaky_start_time})`
+                  : eb.ref("test_metrics.last_flaky_start_time"),
+            }),
+          )
+          .execute();
+      }
     }
   }
 

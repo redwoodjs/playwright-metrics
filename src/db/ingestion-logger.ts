@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-
 export type IngestionEventType = "upload" | "ingest_start" | "ingest_complete" | "error";
 
 export type IngestionEvent = {
@@ -10,12 +8,15 @@ export type IngestionEvent = {
   details?: any;
 };
 
-export async function logIngestionTimeline(event: {
-  runId: string | null;
-  type: IngestionEventType;
-  message: string;
-  details?: any;
-}) {
+export async function logIngestionTimeline(
+  env: Env,
+  event: {
+    runId: string | null;
+    type: IngestionEventType;
+    message: string;
+    details?: any;
+  }
+) {
   if (!env.R2) {
     console.warn("[logIngestionTimeline] R2 is not bound");
     return;

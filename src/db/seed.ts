@@ -1,8 +1,8 @@
-import { db } from "@/db";
-import { sql } from "rwsdk/db";
+import { getDb, sql } from "@/db";
 import { computeRunMetrics } from "./ingestion";
 
-export async function seedDatabase() {
+export async function seedDatabase(env: Env) {
+  const db = getDb(env);
   // Clear existing data (optional, but good for predictable seeds)
   await sql`DELETE FROM attempts`.execute(db);
   await sql`DELETE FROM results`.execute(db);
@@ -105,7 +105,7 @@ export async function seedDatabase() {
     }
 
     // 4. Compute metrics for this run
-    await computeRunMetrics(runId);
+    await computeRunMetrics(env, runId);
   }
 
   console.log("Seeding complete!");
