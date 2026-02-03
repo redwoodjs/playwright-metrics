@@ -1,5 +1,6 @@
 import { db, sql } from "@/db";
 import { env } from "cloudflare:workers";
+import { logIngestionTimeline } from "./ingestion-logger";
 
 export type IngestionMetadata = {
   runId: string;
@@ -89,6 +90,16 @@ export async function ingestRawReport(
       branch: metadata.branch,
       commit: metadata.commit,
     },
+  });
+
+  await logIngestionTimeline({
+    runId,
+    type: "ingest_start",
+    message: `Started ingesting raw report`,
+    details: {
+      repo: metadata.repo,
+      branch: metadata.branch
+    }
   });
 
   // Insert test run using upsert to avoid overwriting existing shard data
@@ -260,6 +271,16 @@ export async function ingestRawReport(
     runId,
     level: "info",
     message: `Raw report ingestion completed for run ${runId}`,
+  });
+
+  await logIngestionTimeline({
+    runId,
+    type: "ingest_complete",
+    message: `Ingestion completed`,
+    details: {
+      specs: specs.length,
+      results: results.length
+    }
   });
 }
 

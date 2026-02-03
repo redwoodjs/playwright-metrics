@@ -18,6 +18,7 @@ import {
   computeRunMetrics,
   type IngestionMetadata,
 } from "./db/ingestion";
+import { logIngestionTimeline } from "./db/ingestion-logger";
 export { Database } from "@/db/durableObject";
 
 export type AppContext = {};
@@ -114,6 +115,18 @@ const app = defineApp([
         contentType: "application/json",
       },
       customMetadata,
+    });
+
+    await logIngestionTimeline({
+      runId,
+      type: "upload",
+      message: `File uploaded to ${r2ObjectKey}`,
+      details: {
+        repo,
+        branch,
+        commit,
+        size: JSON.stringify(reportJson).length
+      }
     });
 
     // -----------------------------

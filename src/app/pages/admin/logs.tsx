@@ -22,7 +22,7 @@ export const Logs = async () => {
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run ID</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Message</th>
                         </tr>
@@ -42,7 +42,10 @@ export const Logs = async () => {
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                       ${log.level === 'error' ? 'bg-red-100 text-red-800' :
                                                 log.level === 'warn' ? 'bg-yellow-100 text-yellow-800' :
-                                                    'bg-green-100 text-green-800'}`}>
+                                                    log.level === 'upload' ? 'bg-blue-100 text-blue-800' :
+                                                        log.level === 'ingest_start' ? 'bg-indigo-100 text-indigo-800' :
+                                                            log.level === 'ingest_complete' ? 'bg-green-100 text-green-800' :
+                                                                'bg-gray-100 text-gray-800'}`}>
                                             {log.level}
                                         </span>
                                     </td>
