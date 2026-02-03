@@ -62,3 +62,16 @@ export async function logIngestionTimeline(
     console.error(`[logIngestionTimeline] Failed to log: ${e}`);
   }
 }
+
+export async function logIngestionError(
+  runId: string | null,
+  message: string,
+  details?: any
+) {
+  await logIngestionTimeline({
+    runId,
+    type: "error",
+    message,
+    details
+  });
+}

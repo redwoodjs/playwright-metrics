@@ -83,207 +83,224 @@ export async function ingestRawReport(
 ) {
   const { runId } = metadata;
 
-  await logIngestionEvent({
-    runId,
-    level: "info",
-    message: `Starting ingestion for run ${runId}`,
-    context: {
-      repo: metadata.repo,
-      branch: metadata.branch,
-      commit: metadata.commit,
-    },
-  });
+  try {
+    await logIngestionEvent({
+      runId,
+      level: "info",
+      message: `Starting ingestion for run ${runId}`,
+      context: {
+        repo: metadata.repo,
+        branch: metadata.branch,
+        commit: metadata.commit,
+      },
+    });
 
-  await logIngestionTimeline({
-    runId,
-    type: "ingest_start",
-    message: `Started ingesting raw report`,
-    details: {
-      repo: metadata.repo,
-      branch: metadata.branch
-    }
-  });
+    await logIngestionTimeline({
+      runId,
+      type: "ingest_start",
+      message: `Started ingesting raw report`,
+      details: {
+        repo: metadata.repo,
+        branch: metadata.branch
+      }
+    });
 
-  // Insert test run using upsert to avoid overwriting existing shard data
-  // but updating metadata if it changed.
-  await db
-    .insertInto("runs")
-    .values({
-      id: runId,
-      pr_user: metadata.prUser ?? "",
-      repo: metadata.repo,
-      branch: metadata.branch,
-      commit_hash: metadata.commit,
-      commit_href: metadata.commitHref ?? "",
-      pr_href: metadata.prHref ?? "",
-      pr_title: metadata.prTitle ?? "",
-      build_href: metadata.buildHref ?? "",
-      playwright_version: metadata.playwrightVersion ?? "",
-      workers: metadata.workers ?? 0,
-      shard_current: metadata.shard_current ?? metadata.shardCurrent ?? 0,
-      shard_total: metadata.shard_total ?? metadata.shardTotal ?? 0,
-      start_time: metadata.startTime ?? new Date().toISOString(),
-      duration_ms: metadata.durationMs ?? 0,
-      expected_count: metadata.expectedCount ?? 0,
-      skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
-      flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
-      unexpected_count:
-        metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
-      labels: metadata.labels ?? "",
-    })
-    .onConflict((oc) =>
-      oc.column("id").doUpdateSet({
-        pr_user: (eb) => eb.ref("excluded.pr_user"),
-        repo: (eb) => eb.ref("excluded.repo"),
-        branch: (eb) => eb.ref("excluded.branch"),
-        commit_hash: (eb) => eb.ref("excluded.commit_hash"),
-        commit_href: (eb) => eb.ref("excluded.commit_href"),
-        pr_href: (eb) => eb.ref("excluded.pr_href"),
-        pr_title: (eb) => eb.ref("excluded.pr_title"),
-        build_href: (eb) => eb.ref("excluded.build_href"),
-        playwright_version: (eb) => eb.ref("excluded.playwright_version"),
-        labels: (eb) => eb.ref("excluded.labels"),
-        // We don't update shard info or counts here as they are partial per shard
-        // they will be updated by computeRunMetrics at the end.
+    // Insert test run using upsert to avoid overwriting existing shard data
+    // but updating metadata if it changed.
+    await db
+      .insertInto("runs")
+      .values({
+        id: runId,
+        pr_user: metadata.prUser ?? "",
+        repo: metadata.repo,
+        branch: metadata.branch,
+        commit_hash: metadata.commit,
+        commit_href: metadata.commitHref ?? "",
+        pr_href: metadata.prHref ?? "",
+        pr_title: metadata.prTitle ?? "",
+        build_href: metadata.buildHref ?? "",
+        playwright_version: metadata.playwrightVersion ?? "",
+        workers: metadata.workers ?? 0,
+        shard_current: metadata.shard_current ?? metadata.shardCurrent ?? 0,
+        shard_total: metadata.shard_total ?? metadata.shardTotal ?? 0,
+        start_time: metadata.startTime ?? new Date().toISOString(),
+        duration_ms: metadata.durationMs ?? 0,
+        expected_count: metadata.expectedCount ?? 0,
+        skipped_count: metadata.skipped_count ?? metadata.skippedCount ?? 0,
+        flaky_count: metadata.flaky_count ?? metadata.flakyCount ?? 0,
+        unexpected_count:
+          metadata.unexpected_count ?? metadata.unexpectedCount ?? 0,
+        labels: metadata.labels ?? "",
       })
-    )
-    .execute();
+      .onConflict((oc) =>
+        oc.column("id").doUpdateSet({
+          pr_user: (eb) => eb.ref("excluded.pr_user"),
+          repo: (eb) => eb.ref("excluded.repo"),
+          branch: (eb) => eb.ref("excluded.branch"),
+          commit_hash: (eb) => eb.ref("excluded.commit_hash"),
+          commit_href: (eb) => eb.ref("excluded.commit_href"),
+          pr_href: (eb) => eb.ref("excluded.pr_href"),
+          pr_title: (eb) => eb.ref("excluded.pr_title"),
+          build_href: (eb) => eb.ref("excluded.build_href"),
+          playwright_version: (eb) => eb.ref("excluded.playwright_version"),
+          labels: (eb) => eb.ref("excluded.labels"),
+          // We don't update shard info or counts here as they are partial per shard
+          // they will be updated by computeRunMetrics at the end.
+        })
+      )
+      .execute();
 
-  const specs: any[] = [];
-  const results: any[] = [];
-  const attempts: any[] = [];
+    const specs: any[] = [];
+    const results: any[] = [];
+    const attempts: any[] = [];
 
-  const processSuite = (suite: any) => {
-    for (const spec of suite.specs ?? []) {
-      const testId = spec.id;
-      const title = spec.title;
-      const filePath = spec.file;
-      const line = spec.line;
+    const processSuite = (suite: any) => {
+      for (const spec of suite.specs ?? []) {
+        const testId = spec.id;
+        const title = spec.title;
+        const filePath = spec.file;
+        const line = spec.line;
 
-      specs.push({ id: testId, title, file: filePath, line });
+        specs.push({ id: testId, title, file: filePath, line });
 
-      for (const test of spec.tests ?? []) {
-        const projectId = test.projectName ?? "";
-        const resultId = `${runId}:${testId}:${projectId}`;
+        for (const test of spec.tests ?? []) {
+          const projectId = test.projectName ?? "";
+          const resultId = `${runId}:${testId}:${projectId}`;
 
-        // Compute final status from attempts if available
-        const lastResult =
-          test.results && test.results.length > 0
-            ? test.results[test.results.length - 1]
-            : null;
-        const computedStatus = lastResult
-          ? lastResult.status
-          : spec.ok
-          ? "passed"
-          : "failed";
+          // Compute final status from attempts if available
+          const lastResult =
+            test.results && test.results.length > 0
+              ? test.results[test.results.length - 1]
+              : null;
+          const computedStatus = lastResult
+            ? lastResult.status
+            : spec.ok
+            ? "passed"
+            : "failed";
 
-        results.push({
-          id: resultId,
-          run_id: runId,
-          test_id: testId,
-          project_id: projectId,
-          project_name: projectId,
-          status: computedStatus,
-        });
-
-        for (const result of test.results ?? []) {
-          // Use deterministic ID for attempts: run+test+project+retry
-          const attemptId = `${runId}:${testId}:${projectId}:${result.retry}`;
-          attempts.push({
-            id: attemptId,
+          results.push({
+            id: resultId,
             run_id: runId,
             test_id: testId,
             project_id: projectId,
-            status: result.status,
-            duration_ms: result.duration,
-            retry: result.retry,
-            worker_index: result.workerIndex,
-            start_time: result.startTime,
-            error_msg: result.error?.message ?? null,
+            project_name: projectId,
+            status: computedStatus,
           });
+
+          for (const result of test.results ?? []) {
+            // Use deterministic ID for attempts: run+test+project+retry
+            const attemptId = `${runId}:${testId}:${projectId}:${result.retry}`;
+            attempts.push({
+              id: attemptId,
+              run_id: runId,
+              test_id: testId,
+              project_id: projectId,
+              status: result.status,
+              duration_ms: result.duration,
+              retry: result.retry,
+              worker_index: result.workerIndex,
+              start_time: result.startTime,
+              error_msg: result.error?.message ?? null,
+            });
+          }
         }
       }
-    }
-    for (const child of suite.suites ?? []) {
-      processSuite(child);
-    }
-  };
+      for (const child of suite.suites ?? []) {
+        processSuite(child);
+      }
+    };
 
-  for (const suite of reportJson.suites ?? []) {
-    processSuite(suite);
+    for (const suite of reportJson.suites ?? []) {
+      processSuite(suite);
+    }
+
+    await logIngestionEvent({
+      runId,
+      level: "info",
+      message: `Processed report JSON: Found ${specs.length} specs, ${results.length} results, ${attempts.length} attempts`,
+    });
+
+    // Bulk inserts with chunking
+    // Cloudflare D1 has a hard limit of 100 variables per statement.
+    if (specs.length > 0) {
+      const CHUNK_SIZE = 15; // 4 columns * 15 = 60 variables
+      for (let i = 0; i < specs.length; i += CHUNK_SIZE) {
+        const chunk = specs.slice(i, i + CHUNK_SIZE);
+        await db
+          .insertInto("specs")
+          .values(chunk)
+          .onConflict((oc) => oc.column("id").doNothing())
+          .execute();
+      }
+    }
+
+    if (results.length > 0) {
+      const CHUNK_SIZE = 10; // 6 columns * 10 = 60 variables
+      for (let i = 0; i < results.length; i += CHUNK_SIZE) {
+        const chunk = results.slice(i, i + CHUNK_SIZE);
+        await db
+          .insertInto("results")
+          .values(chunk)
+          .onConflict((oc) =>
+            oc.column("id").doUpdateSet({
+              status: (eb) => eb.ref("excluded.status"),
+            })
+          )
+          .execute();
+      }
+    }
+
+    if (attempts.length > 0) {
+      const CHUNK_SIZE = 5; // 10 columns * 5 = 50 variables
+      for (let i = 0; i < attempts.length; i += CHUNK_SIZE) {
+        const chunk = attempts.slice(i, i + CHUNK_SIZE);
+        await db
+          .insertInto("attempts")
+          .values(chunk)
+          .onConflict((oc) =>
+            oc.column("id").doUpdateSet({
+              status: (eb) => eb.ref("excluded.status"),
+              duration_ms: (eb) => eb.ref("excluded.duration_ms"),
+              worker_index: (eb) => eb.ref("excluded.worker_index"),
+              start_time: (eb) => eb.ref("excluded.start_time"),
+              error_msg: (eb) => eb.ref("excluded.error_msg"),
+            })
+          )
+          .execute();
+      }
+    }
+
+    await logIngestionEvent({
+      runId,
+      level: "info",
+      message: `Raw report ingestion completed for run ${runId}`,
+    });
+
+    await logIngestionTimeline({
+      runId,
+      type: "ingest_complete",
+      message: `Ingestion completed`,
+      details: {
+        specs: specs.length,
+        results: results.length
+      }
+    });
+  } catch (error: any) {
+    await logIngestionEvent({
+      runId,
+      level: "error",
+      message: `Ingestion failed: ${error.message}`,
+      context: { error },
+    });
+
+    await logIngestionTimeline({
+      runId,
+      type: "error",
+      message: `Ingestion failed: ${error.message}`,
+      details: { error: error.stack }
+    });
+    throw error;
   }
-
-  await logIngestionEvent({
-    runId,
-    level: "info",
-    message: `Processed report JSON: Found ${specs.length} specs, ${results.length} results, ${attempts.length} attempts`,
-  });
-
-  // Bulk inserts with chunking
-  // Cloudflare D1 has a hard limit of 100 variables per statement.
-  if (specs.length > 0) {
-    const CHUNK_SIZE = 15; // 4 columns * 15 = 60 variables
-    for (let i = 0; i < specs.length; i += CHUNK_SIZE) {
-      const chunk = specs.slice(i, i + CHUNK_SIZE);
-      await db
-        .insertInto("specs")
-        .values(chunk)
-        .onConflict((oc) => oc.column("id").doNothing())
-        .execute();
-    }
-  }
-
-  if (results.length > 0) {
-    const CHUNK_SIZE = 10; // 6 columns * 10 = 60 variables
-    for (let i = 0; i < results.length; i += CHUNK_SIZE) {
-      const chunk = results.slice(i, i + CHUNK_SIZE);
-      await db
-        .insertInto("results")
-        .values(chunk)
-        .onConflict((oc) =>
-          oc.column("id").doUpdateSet({
-            status: (eb) => eb.ref("excluded.status"),
-          })
-        )
-        .execute();
-    }
-  }
-
-  if (attempts.length > 0) {
-    const CHUNK_SIZE = 5; // 10 columns * 5 = 50 variables
-    for (let i = 0; i < attempts.length; i += CHUNK_SIZE) {
-      const chunk = attempts.slice(i, i + CHUNK_SIZE);
-      await db
-        .insertInto("attempts")
-        .values(chunk)
-        .onConflict((oc) =>
-          oc.column("id").doUpdateSet({
-            status: (eb) => eb.ref("excluded.status"),
-            duration_ms: (eb) => eb.ref("excluded.duration_ms"),
-            worker_index: (eb) => eb.ref("excluded.worker_index"),
-            start_time: (eb) => eb.ref("excluded.start_time"),
-            error_msg: (eb) => eb.ref("excluded.error_msg"),
-          })
-        )
-        .execute();
-    }
-  }
-
-  await logIngestionEvent({
-    runId,
-    level: "info",
-    message: `Raw report ingestion completed for run ${runId}`,
-  });
-
-  await logIngestionTimeline({
-    runId,
-    type: "ingest_complete",
-    message: `Ingestion completed`,
-    details: {
-      specs: specs.length,
-      results: results.length
-    }
-  });
 }
 
 /**

@@ -1,9 +1,8 @@
-import { render, route, layout } from "rwsdk/router";
+import { render, route, layout, prefix } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
 
 import { Document } from "@/app/document";
 import { setCommonHeaders } from "@/app/headers";
-import { Home } from "@/app/pages/home";
 import { Runs } from "@/app/pages/runs";
 import { Layout } from "@/app/layout/layout";
 import { RunDetail } from "@/app/pages/run-detail";
@@ -11,9 +10,9 @@ import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
 import { TestDetail } from "@/app/pages/spec-detail/spec-detail";
 import { RepoSpecs } from "@/app/pages/repo-specs";
 import { adminPageRoutes } from "@/app/pages/admin/routes";
-import { env, waitUntil } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import { ingestRawReport, computeRunMetrics, type IngestionMetadata } from "./db/ingestion";
-import { logIngestionTimeline } from "./db/ingestion-logger";
+import { logIngestionTimeline, logIngestionError } from "./db/ingestion-logger";
 export { Database } from "@/db/durableObject";
 
 export type AppContext = {};
@@ -35,7 +34,7 @@ const app = defineApp([
       route("/summary/:org/:repo", RepoSpecs),
       route("/summary/:org/:repo/*", RepoSpecs), // RepoSpecs handles branch or branch/commit
       route("/test-summary/:specId", TestDetail),
-      ...adminPageRoutes,
+      prefix('/admin', adminPageRoutes),
     ]),
   ]),
 
@@ -144,7 +143,6 @@ const app = defineApp([
       }
     );
   }),
-  ...adminPageRoutes,
 ]);
 
 export default {
@@ -162,7 +160,9 @@ export default {
         try {
           const r2Obj = await env.R2.get(r2ObjectKey);
           if (!r2Obj) {
-            console.error(`[Queue] Could not find R2 object: ${r2ObjectKey}`);
+            const errorMsg = `Could not find R2 object: ${r2ObjectKey}`;
+            console.error(`[Queue] ${errorMsg}`);
+            await logIngestionError(null, errorMsg, { r2ObjectKey });
             continue;
           }
 
@@ -174,7 +174,9 @@ export default {
             const customMetadata = r2Obj.customMetadata ?? {};
             const parts = r2ObjectKey.split("/");
             if (parts[0] !== "runs" || parts.length < 5) {
-              console.error(`[Queue] Invalid key format: ${r2ObjectKey}`);
+              const errorMsg = `Invalid key format for ingestion: ${r2ObjectKey}. Expected 'runs/repo/branch/commit/runId.json'`;
+              console.error(`[Queue] ${errorMsg}`);
+              await logIngestionError(null, errorMsg, { r2ObjectKey });
               continue;
             }
 
@@ -216,8 +218,13 @@ export default {
           await ingestRawReport(finalMetadata, reportJson);
           await computeRunMetrics(finalMetadata.runId);
           console.log(`[Queue] Successfully ingested ${finalMetadata.runId}`);
-        } catch (error) {
+        } catch (error: any) {
           console.error(`[Queue] Error ingesting ${r2ObjectKey}:`, error);
+          await logIngestionError(
+            metadata?.runId || null,
+            `Queue ingestion failed: ${error.message}`,
+            { r2ObjectKey, error: error.stack }
+          );
           // Retrying depends on the error, but for now we'll let it fail or the user can re-ingest.
           // Cloudflare Queues will retry automatically if we throw or don't ack.
           throw error;
