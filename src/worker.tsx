@@ -30,9 +30,9 @@ const app = defineApp([
       route("/", Leaderboard),
       route("/runs", Runs),
       route("/runs/:org/:repo", Runs),
-      route("/runs/:org/:repo/*", RunDetail), // RunDetail handles paths with commits
+      route("/runs/:org/:repo/*", RunDetail),
       route("/summary/:org/:repo", RepoSpecs),
-      route("/summary/:org/:repo/*", RepoSpecs), // RepoSpecs handles branch or branch/commit
+      route("/summary/:org/:repo/*", RepoSpecs),
       route("/test-summary/:specId", TestDetail),
       prefix('/admin', adminPageRoutes),
     ]),
@@ -146,7 +146,7 @@ const app = defineApp([
 ]);
 
 export default {
-  ...app,
+  fetch: app.fetch,
   async queue(
     batch: MessageBatch<QueueMessage>,
     env: Env,

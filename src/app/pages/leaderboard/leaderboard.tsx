@@ -27,7 +27,7 @@ function formatWasteTime(ms: number): string {
 export const Leaderboard = async () => {
   const url = new URL(requestInfo.request.url);
   const sortBy = url.searchParams.get("sort") || "rate";
-  const branch = url.searchParams.get("branch") || "";
+  const branch = url.searchParams.get("branch") || "master";
 
   const [rows, branches] = await Promise.all([
     getLeaderboardData(50, sortBy as any, branch || undefined),
