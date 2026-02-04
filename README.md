@@ -4,198 +4,64 @@ Flakiness is the product.
 
 A flakiness-first test reporting system that aggregates Playwright reporter output and produces metrics for all test runs. Built to answer: "What is broken in our test suite?" rather than just "What failed on this run?"
 
-Built by the [RedwoodJS team](https://rwsdk.com) — **Hire us!**
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/redwoodjs/playwright-metrics)
 
 ## Overview
 
-This tool aggregates Playwright reporter output and produces metrics for all test runs. It's self-hostable and runs on Cloudflare Workers, with raw data stored in Cloudflare R2 (object storage) and metrics collected in Durable Objects (SQLite-backed).
+This tool aggregates Playwright reporter output to identify and prioritize flaky tests. It runs on Cloudflare Workers, storing raw data in R2 and metrics in Durable Objects (SQLite).
 
-## Core Philosophy
+## Installation
 
-This is a **reliability system, not a test report viewer**. The primary goal is flake detection and prioritization, helping engineers immediately see:
+The easiest way to get started is by deploying to Cloudflare:
 
-- Which tests waste the most CI time
-- Which tests fail unpredictably
-- Which tests need fixing first
+1. Click the **Deploy to Cloudflare Workers** button above.
+2. Follow the prompts to connect your GitHub account and deploy.
+3. Once deployed, you'll have a URL for your metrics dashboard (e.g., `https://playwright-metrics.your-subdomain.workers.dev`).
 
-### Future
+## Uploading Reports
 
-- Reporter for Playwright; so you don't need to manually add an action.
-- Status bar updates; so developers see immediately which tests fail.
-- MCP server for grabbing the flakiness;
-- Downloading the full-report;
-- Automated fixing via GitHub Bot.
+To track metrics, you need to upload Playwright JSON reports to your server.
+
+### 1. Requirements
+
+- **Reporter**: Use the built-in [JSON reporter](https://playwright.dev/docs/test-reporters#json-reporter) in your Playwright project.
+  ```typescript
+  // playwright.config.ts
+  export default defineConfig({
+    reporter: [['json', { outputFile: 'playwright-report/report.json' }]],
+  });
+  ```
+- **Upload Script**: A script to POST the JSON report to the `/upload/` endpoint.
+
+### 2. Integration
+
+We provide a specialized upload script in [upload-playwright-report.tsx](scripts/upload-playwright-report.tsx.example).
+
+To use it in your project, check the example script for usage instructions and required environment variables.
+
+## Security via Zero Trust
+
+We recommend protecting your metrics dashboard using [Cloudflare Zero Trust](https://www.cloudflare.com/products/zero-trust/).
+
+1. Enable **Cloudflare Access** for your Worker's domain.
+2. Create an **Access Application** for your dashboard URL.
+3. Define **Policies** to restrict access (e.g., only allow users from your organization).
+
+Wait, what about the `/upload/` endpoint? It needs to be bypassable by your CI/CD pipeline. You can do this by creating an **Access Service Token** for your CI runner and adding a policy to allow it.
+
+## Philosophy
 
 ### Primary KPI: Flaky Rate
-
-The main metric is **flaky_rate**:
-
-```
-flaky_rate = flaky_runs / total_runs
-```
-
-Where a **flaky_run** = failed at least once AND passed on retry in the same run.
-
-This metric measures:
-
-- Nondeterminism
-- Race conditions
-- Timing sensitivity
-- Infrastructure sensitivity
-- Brittle selectors
-
-A flaky test is worse than a failing test. Failing tests get fixed. Flaky tests rot.
+`flaky_rate = flaky_runs / total_runs`
+A **flaky_run** failed at least once but passed on retry in the same run.
 
 ### Ranking Principle
+1. Highest **flaky_rate**
+2. Highest **flaky_runs**
+3. Highest **total_runs**
 
-Default ordering everywhere:
-
-1. Highest flaky_rate
-2. Then highest flaky_runs
-3. Then highest total_runs
-
-This surfaces the most unstable tests with enough data to be meaningful.
-
-## Architecture
-
-- **Runtime**: Cloudflare Workers
-- **Raw Data Storage**: Cloudflare R2 (object storage) — stores complete Playwright JSON reports
-- **Metrics Storage**: Durable Objects (SQLite-backed) — stores normalized test data, runs, and computed metrics
-- **Framework**: RedwoodSDK (React Server Components on Cloudflare)
-
-### Data Flow
-
-1. Playwright test runs upload JSON reports to `/upload/` endpoint
-2. Raw JSON reports are stored in R2 at `runs/{repo}/{branch}/{commit}/{runId}.json`
-3. Test data is normalized and stored in Durable Objects:
-   - Test identities (id, title, file, line)
-   - Test runs (metadata, timing, counts)
-   - Test results (status, duration, retries, errors)
-4. Metrics are computed and displayed in the dashboard
-
-## Setup
-
-### Prerequisites
-
-- Node.js (v18+)
-- pnpm
-- Cloudflare account with Workers and R2 enabled
-
-### Installation
-
-```shell
-pnpm install
-```
-
-### Development
-
-```shell
-pnpm dev
-```
-
-Point your browser to the URL displayed in the terminal (e.g. `http://localhost:5173/`).
-
-### Deployment
-
-```shell
-pnpm release
-```
-
-This will:
-
-1. Clean build artifacts
-2. Build the application
-3. Deploy to Cloudflare Workers
-
-## Data Ingestion
-
-The system accepts Playwright JSON reporter output via the `/upload/` endpoint.
-
-### Upload Endpoint
-
-**POST** `/upload/`
-
-**Content-Type**: `multipart/form-data`
-
-**Required Fields**:
-
-- `file`: Playwright JSON report file
-- `run-id`: Unique identifier for this test run
-- `repo`: Repository name
-- `branch`: Git branch name
-- `commit`: Git commit hash
-
-**Optional Fields**:
-
-- `pr-user`: Pull request author
-- `playwright-version`: Playwright version
-- `workers`: Number of workers used
-- `shard-current`: Current shard number
-- `shard-total`: Total shards
-- `start-time`: ISO timestamp of run start
-- `duration-ms`: Total duration in milliseconds
-- `expected-count`: Number of expected (passed) tests
-- `skipped-count`: Number of skipped tests
-- `flaky-count`: Number of flaky tests
-- `unexpected-count`: Number of unexpected (failed) tests
-- `commit-href`: URL to commit
-- `pr-href`: URL to pull request
-- `pr-title`: Pull request title
-- `build-href`: URL to CI build
-
-**Response**:
-
-```json
-{
-  "ok": true,
-  "r2_key": "runs/{repo}/{branch}/{commit}/{runId}.json"
-}
-```
-
-## Dashboard Features
-
-The dashboard provides:
-
-**For each test**:
-
-- Flaky rate
-- Total flaky runs
-- Total retries
-- Mean runtime
-- Last flaky occurrence
-- Failure trend over last N runs
-
-**For each PR**:
-
-- New flaky tests introduced
-- Existing flaky tests that regressed
-- Tests that became stable again
-
-### Flake Classification
-
-- **Stable** → flaky_rate < 1%
-- **Suspicious** → flaky_rate 1–5%
-- **Flaky** → flaky_rate 5–20%
-- **Critical** → flaky_rate > 20%
-
-Only Flaky and Critical matter day-to-day.
-
-## Why This Exists
-
-Playwright HTML reports answer: "What failed on this run?"
-
-This system answers: "What is broken in our test suite?"
-
-This platform exists to:
-
-- Surface nondeterminism
-- Quantify instability
-- Prioritize reliability work
-- Reduce CI noise
-
-**Flakiness is the product.**
+This surfaces the most unstable tests first.
 
 ## Further Reading
-
-- [Product Brief](docs/product.md) — Detailed product philosophy and metrics
+- [Product Brief](docs/product.md)
 - [RedwoodSDK Documentation](https://docs.rwsdk.com/)

@@ -1,0 +1,192 @@
+#!/usr/bin/env tsx
+/* eslint-disable no-console */
+/**
+ * Script to upload Playwright JSON report to external reporter with retry logic.
+ * Requires `tsx` to be installed (or run via `npx tsx`).
+ *
+ * Ensure Playwright is configured to produce a JSON report at the expected path:
+ *   reporter: [['json', { outputFile: 'playwright-report/report.json' }]]
+ *
+ * Usage:
+ *   npx tsx scripts/upload-playwright-report.ts
+ *
+ * Required environment variables:
+ *   PR_NAME, PR_USER, BRANCH, REPO, COMMIT, GITHUB_RUN_ID, SHARD_CURRENT, SHARD_TOTAL
+ *
+ * GitHub Action Example:
+ *   - name: Upload Playwright Report
+ *     if: always()
+ *     run: npx tsx scripts/upload-playwright-report.tsx
+ *     env:
+ *       PR_NAME: ${{ github.event.pull_request.title }}
+ *       PR_USER: ${{ github.actor }}
+ *       BRANCH: ${{ github.head_ref || github.ref_name }}
+ *       REPO: ${{ github.repository }}
+ *       COMMIT: ${{ github.sha }}
+ *       GITHUB_RUN_ID: ${{ github.run_id }}
+ *       SHARD_CURRENT: ${{ strategy.job-index }} # or appropriate shard index
+ *       SHARD_TOTAL: ${{ strategy.job-total }}
+ */
+
+import { existsSync, readFileSync } from 'fs'
+import { execSync } from 'child_process'
+
+const UPLOAD_URL = 'https://[YOUR_WORKER].workers.dev/upload/'
+const REPORT_FILE = 'playwright-report/report.json'
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 2000
+
+async function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function uploadReport(
+    formData: FormData,
+    attempt: number
+): Promise<boolean> {
+    try {
+        console.log(`Upload attempt ${attempt}/${MAX_RETRIES}...`)
+        const response = await fetch(UPLOAD_URL, {
+            method: 'POST',
+            body: formData,
+        })
+
+        if (!response.ok) {
+            const text = await response.text()
+            console.error(`Upload failed with status ${response.status}: ${text}`)
+            return false
+        }
+
+        console.log('✅ Upload complete')
+        return true
+    } catch (error) {
+        console.error(
+            `Upload error:`,
+            error instanceof Error ? error.message : error
+        )
+        return false
+    }
+}
+
+function getGitBranch(): string {
+    if (process.env.BRANCH) return process.env.BRANCH
+
+    try {
+        const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+            encoding: 'utf8',
+        }).trim()
+        if (branch && branch !== 'HEAD') return branch
+    } catch {
+        // ignore
+    }
+
+    if (existsSync('.git/refs/heads/main')) return 'main'
+    if (existsSync('.git/refs/heads/master')) return 'master'
+
+    return 'unknown'
+}
+
+async function main() {
+    // Check if report file exists
+    if (!existsSync(REPORT_FILE)) {
+        console.log(`⚠️  ${REPORT_FILE} not found. Skipping upload.`)
+        process.exit(0)
+    }
+
+    // Required environment variables
+    const requiredEnv = [
+        'PR_NAME',
+        'PR_USER',
+        'REPO',
+        'COMMIT',
+        'GITHUB_RUN_ID',
+        'SHARD_CURRENT',
+        'SHARD_TOTAL',
+    ]
+
+    const missingEnv = requiredEnv.filter(key => !process.env[key])
+    if (missingEnv.length > 0) {
+        console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`)
+        process.exit(1)
+    }
+
+    const branch = getGitBranch()
+
+    const env = {
+        PR_NAME: process.env.PR_NAME!,
+        PR_USER: process.env.PR_USER!,
+        BRANCH: branch,
+        REPO: process.env.REPO!,
+        COMMIT: process.env.COMMIT!,
+        PR_NUMBER: process.env.PR_NUMBER,
+        PR_TITLE: process.env.PR_TITLE,
+        GITHUB_RUN_ID: process.env.GITHUB_RUN_ID!,
+        SHARD_CURRENT: process.env.SHARD_CURRENT!,
+        SHARD_TOTAL: process.env.SHARD_TOTAL!,
+    }
+
+    // Build URLs
+    const commitHref = `https://github.com/${env.REPO}/commit/${env.COMMIT}`
+    const prHref = env.PR_NUMBER
+        ? `https://github.com/${env.REPO}/pull/${env.PR_NUMBER}`
+        : ''
+    const buildHref = `https://github.com/${env.REPO}/actions/runs/${env.GITHUB_RUN_ID}`
+    const runId = `${env.GITHUB_RUN_ID}-shard-${env.SHARD_CURRENT}`
+
+    // Get Playwright version
+    let pwVersion = 'unknown'
+    try {
+        const packageJson = JSON.parse(readFileSync('package.json', 'utf-8'))
+        pwVersion =
+            packageJson.devDependencies?.['@playwright/test']?.replace('^', '') ??
+            'unknown'
+    } catch {
+        console.warn('Could not read Playwright version from package.json')
+    }
+
+    console.log(
+        `Uploading ${REPORT_FILE} for PR '${env.PR_NAME}', user '${env.PR_USER}', branch '${env.BRANCH}', run '${runId}'`
+    )
+
+    // Read report file
+    const reportContent = readFileSync(REPORT_FILE)
+    const reportBlob = new Blob([reportContent], { type: 'application/json' })
+
+    // Build form data
+    const formData = new FormData()
+    formData.append('file', reportBlob, `report-${env.SHARD_CURRENT}.json`)
+    formData.append('pr-name', env.PR_NAME)
+    formData.append('run-id', runId)
+    formData.append('pr-user', env.PR_USER)
+    formData.append('branch', env.BRANCH)
+    formData.append('repo', env.REPO)
+    formData.append('commit', env.COMMIT)
+    formData.append('commit-href', commitHref)
+    formData.append('pr-href', prHref)
+    formData.append('pr-title', env.PR_TITLE ?? '')
+    formData.append('build-href', buildHref)
+    formData.append('playwright-version', pwVersion)
+    formData.append('shard-current', env.SHARD_CURRENT)
+    formData.append('shard-total', env.SHARD_TOTAL)
+
+    // Attempt upload with retries
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        const success = await uploadReport(formData, attempt)
+        if (success) {
+            process.exit(0)
+        }
+
+        if (attempt < MAX_RETRIES) {
+            console.log(`Retrying in ${RETRY_DELAY_MS / 1000} seconds...`)
+            await sleep(RETRY_DELAY_MS)
+        }
+    }
+
+    console.error(
+        `⚠️  External reporter upload failed after ${MAX_RETRIES} attempts`
+    )
+    // Exit with 0 to not fail the workflow - upload is optional
+    process.exit(0)
+}
+
+main()
