@@ -22,7 +22,7 @@ export type QueueMessage = {
   metadata?: IngestionMetadata;
 };
 
-const app = defineApp([
+export const app = defineApp([
   setCommonHeaders(),
 
   render(Document, [

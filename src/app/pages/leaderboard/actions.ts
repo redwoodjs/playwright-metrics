@@ -1,6 +1,12 @@
 "use server";
 import { db } from "@/db";
-import { listFlakiestTests } from "../actions";
+
+// Flaky reporting is limited to the trailing 2-week window so the leaderboard
+// reflects current quality rather than years-old aggregates.
+const FLAKY_REPORT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+const flakyReportSince = () =>
+  new Date(Date.now() - FLAKY_REPORT_WINDOW_MS).toISOString();
 
 export type LeaderboardRow = {
   test_id: string;
@@ -12,6 +18,61 @@ export type LeaderboardRow = {
   waste_time_ms: number;
   recent_results: ("pass" | "flaky" | "fail" | "skip")[];
 };
+
+type RecentFlakyAggregate = {
+  test_id: string;
+  title: string | null;
+  file: string | null;
+  total_runs: number;
+  flaky_runs: number;
+  flaky_rate: number;
+  fail_rate: number;
+  waste_time_ms: number;
+};
+
+async function listFlakiestTestsRecent(
+  branch?: string,
+): Promise<RecentFlakyAggregate[]> {
+  let query = db
+    .selectFrom("results as r")
+    .innerJoin("specs as t", "t.id", "r.test_id")
+    .where("r.start_time", ">=", flakyReportSince());
+
+  if (branch) {
+    query = query.where("r.branch", "=", branch);
+  }
+
+  const rows = await query
+    .select((eb) => [
+      "r.test_id",
+      "t.title",
+      "t.file",
+      eb.fn.countAll<number>().as("total_runs"),
+      eb.fn.sum<number>("r.was_flaky").as("flaky_runs"),
+      eb.fn.sum<number>("r.had_failure").as("runs_with_failure"),
+      eb.fn.sum<number>("r.retry_duration_ms").as("waste_time_ms"),
+    ])
+    .groupBy(["r.test_id", "t.title", "t.file"])
+    .execute();
+
+  return rows
+    .map((r) => {
+      const total = Number(r.total_runs ?? 0);
+      const flaky = Number(r.flaky_runs ?? 0);
+      const fails = Number(r.runs_with_failure ?? 0);
+      return {
+        test_id: r.test_id,
+        title: r.title,
+        file: r.file,
+        total_runs: total,
+        flaky_runs: flaky,
+        flaky_rate: total > 0 ? flaky / total : 0,
+        fail_rate: total > 0 ? fails / total : 0,
+        waste_time_ms: Number(r.waste_time_ms ?? 0),
+      };
+    })
+    .filter((r) => r.flaky_runs > 0 && r.fail_rate < 1);
+}
 
 /**
  * Get all unique branches from the test_metrics table
@@ -56,7 +117,8 @@ async function getRecentResultsBatched(
           "trt.had_failure",
           "trt.start_time",
         ])
-        .where("trt.test_id", "in", chunkIds);
+        .where("trt.test_id", "in", chunkIds)
+        .where("trt.start_time", ">=", flakyReportSince());
 
       if (branch) {
         query = query.where("trt.branch", "=", branch);
@@ -105,17 +167,14 @@ export async function getLeaderboardData(
   sortBy: "rate" | "runs" | "waste" = "rate",
   branch?: string,
 ): Promise<LeaderboardRow[]> {
-  // 1. Get a larger set of potentially flaky tests from the summary table
-  const flakiestTests = await listFlakiestTests(200, branch);
+  // 1. Aggregate flaky stats from results over the trailing 2-week window
+  const onlyFlaky = await listFlakiestTestsRecent(branch);
 
-  // 2. Filter for tests that are actually flaky
-  const onlyFlaky = flakiestTests.filter((test) => test.flaky_rate > 0);
-
-  // 3. Batched fetch of recent results for all tests at once
+  // 2. Batched fetch of recent results for all tests at once
   const testIds = onlyFlaky.map((t) => t.test_id);
   const recentResultsMap = await getRecentResultsBatched(testIds, 12, branch);
 
-  // 4. Transform into LeaderboardRow
+  // 3. Transform into LeaderboardRow
   const leaderboardData: LeaderboardRow[] = onlyFlaky.map((test) => {
     return {
       test_id: test.test_id,
@@ -124,7 +183,7 @@ export async function getLeaderboardData(
       flaky_rate: test.flaky_rate,
       flaky_runs: test.flaky_runs,
       total_runs: test.total_runs,
-      waste_time_ms: test.retry_duration_total_ms ?? 0,
+      waste_time_ms: test.waste_time_ms,
       recent_results: recentResultsMap.get(test.test_id) || [],
     };
   });
