@@ -39,6 +39,34 @@ We provide a specialized upload script in [upload-playwright-report.tsx](scripts
 
 To use it in your project, check the example script for usage instructions and required environment variables.
 
+## Simple JSON API
+
+For scripts or AI clients that just need JSON, the Worker exposes a small authenticated API under `/api`.
+
+Set a shared token as a Worker secret:
+
+```bash
+wrangler secret put API_AUTH_TOKEN
+```
+
+Then call it with one of these headers:
+
+```bash
+curl -H "Authorization: Bearer $API_AUTH_TOKEN" https://your-worker.example.com/api/metrics
+curl -H "x-api-key: $API_AUTH_TOKEN" https://your-worker.example.com/api/leaderboard?limit=20
+```
+
+Useful endpoints:
+
+- `GET /api/metrics?branch=&limit=20` — compact summary for humans/AI clients
+- `GET /api/leaderboard?branch=&limit=50&sortBy=rate|runs|waste`
+- `GET /api/runs?repo=&branch=&limit=50&offset=0`
+- `GET /api/runs/:commitHash?include=tests`
+- `GET /api/suite/health?windowRuns=30`
+- `GET /api/suite/trends`
+- `GET /api/regressions?currentWindow=10&previousWindow=10&minimumSampleSize=5`
+- `GET /api/test-trend?testId=<id>&lookbackRuns=30`
+
 ## Security via Zero Trust
 
 We recommend protecting your metrics dashboard using [Cloudflare Zero Trust](https://www.cloudflare.com/products/zero-trust/).

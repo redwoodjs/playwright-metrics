@@ -10,6 +10,7 @@ import { Leaderboard } from "@/app/pages/leaderboard/leaderboard";
 import { TestDetail } from "@/app/pages/spec-detail/spec-detail";
 import { RepoSpecs } from "@/app/pages/repo-specs";
 import { adminPageRoutes } from "@/app/pages/admin/routes";
+import { apiRoutes } from "@/app/pages/api/routes";
 import { env } from "cloudflare:workers";
 import { ingestRawReport, computeRunMetrics, type IngestionMetadata } from "./db/ingestion";
 import { logIngestionTimeline, logIngestionError } from "./db/ingestion-logger";
@@ -35,6 +36,7 @@ export const app = defineApp([
       route("/summary/:org/:repo/*", RepoSpecs),
       route("/test-summary/:specId", TestDetail),
       prefix('/admin', adminPageRoutes),
+      prefix('/api', apiRoutes),
     ]),
   ]),
 
