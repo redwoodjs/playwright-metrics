@@ -14,6 +14,7 @@ import {
 } from "@/app/pages/actions";
 import { getLeaderboardData } from "@/app/pages/leaderboard/actions";
 import { getAdminStats } from "@/app/pages/admin/stats-actions";
+import { db, sql } from "@/db";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,6 +102,75 @@ function sortByParam(url: URL): "rate" | "runs" | "waste" {
   return sortBy === "runs" || sortBy === "waste" ? sortBy : "rate";
 }
 
+type ApiLeaderboardRow = {
+  test_id: string;
+  title: string | null;
+  file: string | null;
+  flaky_rate: number;
+  flaky_runs: number;
+  total_runs: number;
+  waste_time_ms: number;
+  recent_results: ("pass" | "flaky" | "fail" | "skip")[];
+};
+
+const FLAKY_REPORT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+async function getApiLeaderboardData(
+  limit: number,
+  sortBy: "rate" | "runs" | "waste",
+  branch?: string,
+): Promise<ApiLeaderboardRow[]> {
+  const since = new Date(Date.now() - FLAKY_REPORT_WINDOW_MS).toISOString();
+  const branchFilter = branch ? sql`AND r.branch = ${branch}` : sql``;
+  const orderBy =
+    sortBy === "waste"
+      ? sql`waste_time_ms DESC, flaky_rate DESC, flaky_runs DESC`
+      : sortBy === "runs"
+        ? sql`flaky_runs DESC, flaky_rate DESC, total_runs DESC`
+        : sql`flaky_rate DESC, flaky_runs DESC, total_runs DESC`;
+
+  const result = await sql`
+    SELECT
+      test_id,
+      title,
+      file,
+      total_runs,
+      flaky_runs,
+      flaky_rate,
+      waste_time_ms
+    FROM (
+      SELECT
+        r.test_id AS test_id,
+        t.title AS title,
+        t.file AS file,
+        COUNT(*) AS total_runs,
+        SUM(CASE WHEN r.was_flaky THEN 1 ELSE 0 END) AS flaky_runs,
+        SUM(CASE WHEN r.had_failure THEN 1 ELSE 0 END) AS runs_with_failure,
+        SUM(COALESCE(r.retry_duration_ms, 0)) AS waste_time_ms,
+        CAST(SUM(CASE WHEN r.was_flaky THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS flaky_rate
+      FROM results AS r
+      INNER JOIN specs AS t ON t.id = r.test_id
+      WHERE r.start_time >= ${since}
+      ${branchFilter}
+      GROUP BY r.test_id, t.title, t.file
+    )
+    WHERE flaky_runs > 0 AND runs_with_failure < total_runs
+    ORDER BY ${orderBy}
+    LIMIT ${limit}
+  `.execute(db);
+
+  return result.rows.map((row: any) => ({
+    test_id: String(row.test_id),
+    title: row.title ?? null,
+    file: row.file ?? null,
+    flaky_rate: Number(row.flaky_rate ?? 0),
+    flaky_runs: Number(row.flaky_runs ?? 0),
+    total_runs: Number(row.total_runs ?? 0),
+    waste_time_ms: Number(row.waste_time_ms ?? 0),
+    recent_results: [],
+  }));
+}
+
 function apiIndex() {
   return json({
     name: "playwright-metrics-api",
@@ -164,7 +234,7 @@ async function apiHandler({ request }: { request: Request }) {
     const limit = intParam(url, "limit", 50, { max: 200 });
     const branch = url.searchParams.get("branch") ?? undefined;
     return json({
-      leaderboard: await getLeaderboardData(limit, sortByParam(url), branch),
+      leaderboard: await getApiLeaderboardData(limit, sortByParam(url), branch),
     });
   }
 
