@@ -113,15 +113,12 @@ type ApiLeaderboardRow = {
   recent_results: ("pass" | "flaky" | "fail" | "skip")[];
 };
 
-const FLAKY_REPORT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-
 async function getApiLeaderboardData(
   limit: number,
   sortBy: "rate" | "runs" | "waste",
   branch?: string,
 ): Promise<ApiLeaderboardRow[]> {
-  const since = new Date(Date.now() - FLAKY_REPORT_WINDOW_MS).toISOString();
-  const branchFilter = branch ? sql`AND r.branch = ${branch}` : sql``;
+  const branchFilter = branch ? sql`WHERE m.branch = ${branch}` : sql``;
   const orderBy =
     sortBy === "waste"
       ? sql`waste_time_ms DESC, flaky_rate DESC, flaky_runs DESC`
@@ -140,19 +137,18 @@ async function getApiLeaderboardData(
       waste_time_ms
     FROM (
       SELECT
-        r.test_id AS test_id,
+        m.test_id AS test_id,
         t.title AS title,
         t.file AS file,
-        COUNT(*) AS total_runs,
-        SUM(CASE WHEN r.was_flaky THEN 1 ELSE 0 END) AS flaky_runs,
-        SUM(CASE WHEN r.had_failure THEN 1 ELSE 0 END) AS runs_with_failure,
-        SUM(COALESCE(r.retry_duration_ms, 0)) AS waste_time_ms,
-        CAST(SUM(CASE WHEN r.was_flaky THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS flaky_rate
-      FROM results AS r
-      INNER JOIN specs AS t ON t.id = r.test_id
-      WHERE r.start_time >= ${since}
+        SUM(m.total_runs) AS total_runs,
+        SUM(m.flaky_runs) AS flaky_runs,
+        SUM(m.runs_with_failure) AS runs_with_failure,
+        SUM(COALESCE(m.retry_duration_total_ms, 0)) AS waste_time_ms,
+        CAST(SUM(m.flaky_runs) AS REAL) / SUM(m.total_runs) AS flaky_rate
+      FROM test_metrics AS m
+      INNER JOIN specs AS t ON t.id = m.test_id
       ${branchFilter}
-      GROUP BY r.test_id, t.title, t.file
+      GROUP BY m.test_id, t.title, t.file
     )
     WHERE flaky_runs > 0 AND runs_with_failure < total_runs
     ORDER BY ${orderBy}
